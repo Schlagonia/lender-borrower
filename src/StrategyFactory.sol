@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.18;
 
-import {Strategy, ERC20} from "./Strategy.sol";
+import {LenderBorrower, ERC20} from "./LenderBorrower.sol";
 import {IStrategyInterface} from "./interfaces/IStrategyInterface.sol";
 
 contract StrategyFactory {
@@ -31,15 +31,19 @@ contract StrategyFactory {
     /**
      * @notice Deploy a new Strategy.
      * @param _asset The underlying asset for the strategy to use.
+     * @param _borrowToken The borrow token for the strategy to use.
+     * @param _gov The governance address for the strategy to use.
      * @return . The address of the new strategy.
      */
     function newStrategy(
         address _asset,
-        string calldata _name
+        string calldata _name,
+        address _borrowToken,
+        address _gov
     ) external virtual returns (address) {
         // tokenized strategies available setters.
         IStrategyInterface _newStrategy = IStrategyInterface(
-            address(new Strategy(_asset, _name))
+            address(0) //new LenderBorrower(_asset, _name, _borrowToken, _gov))
         );
 
         _newStrategy.setPerformanceFeeRecipient(performanceFeeRecipient);
@@ -67,9 +71,11 @@ contract StrategyFactory {
         keeper = _keeper;
     }
 
-    function isDeployedStrategy(
-        address _strategy
-    ) external view returns (bool) {
+    function isDeployedStrategy(address _strategy)
+        external
+        view
+        returns (bool)
+    {
         address _asset = IStrategyInterface(_strategy).asset();
         return deployments[_asset] == _strategy;
     }
