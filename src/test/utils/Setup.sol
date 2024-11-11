@@ -4,7 +4,7 @@ pragma solidity ^0.8.18;
 import "forge-std/console2.sol";
 import {ExtendedTest} from "./ExtendedTest.sol";
 
-import {LenderBorrower, ERC20} from "../../LenderBorrower.sol";
+import {LenderBorrower, Depositor, Comet, ERC20} from "../../LenderBorrower.sol";
 import {StrategyFactory} from "../../StrategyFactory.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
 
@@ -23,12 +23,18 @@ contract Setup is ExtendedTest, IEvents {
     // Contract instances that we will use repeatedly.
     ERC20 public asset;
     IStrategyInterface public strategy;
-
+    Depositor public depositor;
     StrategyFactory public strategyFactory;
 
+    address public borrowToken;
+    address public comet;
+    uint24 public ethToAssetFee;
+
     mapping(string => address) public tokenAddrs;
+    mapping(string => address) public comets;
 
     // Addresses for different roles we will use repeatedly.
+    address public gov = address(69);
     address public user = address(10);
     address public keeper = address(4);
     address public management = address(1);
@@ -43,8 +49,8 @@ contract Setup is ExtendedTest, IEvents {
     uint256 public MAX_BPS = 10_000;
 
     // Fuzz from $0.01 of 1e6 stable coins up to 1 trillion of a 1e18 coin
-    uint256 public maxFuzzAmount = 1e30;
-    uint256 public minFuzzAmount = 10_000;
+    uint256 public maxFuzzAmount = 1e21;
+    uint256 public minFuzzAmount = 1e17;
 
     // Default profit max unlock time is set for 10 days
     uint256 public profitMaxUnlockTime = 10 days;
@@ -53,12 +59,16 @@ contract Setup is ExtendedTest, IEvents {
         _setTokenAddrs();
 
         // Set asset
-        asset = ERC20(tokenAddrs["DAI"]);
+        asset = ERC20(tokenAddrs["WETH"]);
+        comet = comets["USDT"];
+        ethToAssetFee = 500;
 
         // Set decimals
         decimals = asset.decimals();
 
         strategyFactory = new StrategyFactory(
+            gov,
+            tokenAddrs["WETH"],
             management,
             performanceFeeRecipient,
             keeper,
@@ -67,6 +77,9 @@ contract Setup is ExtendedTest, IEvents {
 
         // Deploy strategy and set variables
         strategy = IStrategyInterface(setUpStrategy());
+
+        depositor = Depositor(strategy.depositor());
+        borrowToken = strategy.borrowToken();
 
         factory = strategy.FACTORY();
 
@@ -86,8 +99,8 @@ contract Setup is ExtendedTest, IEvents {
                 strategyFactory.newStrategy(
                     address(asset),
                     "Tokenized Strategy",
-                    address(asset),
-                    management
+                    address(comet),
+                    ethToAssetFee
                 )
             )
         );
@@ -148,13 +161,13 @@ contract Setup is ExtendedTest, IEvents {
     }
 
     function setFees(uint16 _protocolFee, uint16 _performanceFee) public {
-        address gov = IFactory(factory).governance();
+        address _gov = IFactory(factory).governance();
 
         // Need to make sure there is a protocol fee recipient to set the fee.
-        vm.prank(gov);
-        IFactory(factory).set_protocol_fee_recipient(gov);
+        vm.prank(_gov);
+        IFactory(factory).set_protocol_fee_recipient(_gov);
 
-        vm.prank(gov);
+        vm.prank(_gov);
         IFactory(factory).set_protocol_fee_bps(_protocolFee);
 
         vm.prank(management);
@@ -169,5 +182,42 @@ contract Setup is ExtendedTest, IEvents {
         tokenAddrs["USDT"] = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
         tokenAddrs["DAI"] = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
         tokenAddrs["USDC"] = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+        comets["WETH"] = 0xA17581A9E3356d9A858b789D68B4d866e593aE94;
+        comets["USDC"] = 0xc3d688B66703497DAA19211EEdff47f25384cdc3;
+        comets["USDT"] = 0x3Afdc9BCA9213A35503b077a6072F3D0d5AB0840;
+    }
+
+    function _toUsd(uint256 _amount, address _token)
+        internal
+        view
+        returns (uint256)
+    {
+        if (_amount == 0) return 0;
+        unchecked {
+            return
+                (_amount * _getCompoundPrice(_token)) /
+                (uint256(10**ERC20(_token).decimals()));
+        }
+    }
+
+    function _fromUsd(uint256 _amount, address _token)
+        internal
+        view
+        returns (uint256)
+    {
+        if (_amount == 0) return 0;
+        unchecked {
+            return
+                (_amount * (uint256(10**ERC20(_token).decimals()))) /
+                _getCompoundPrice(_token);
+        }
+    }
+
+    function _getCompoundPrice(address _asset)
+        internal
+        view
+        returns (uint256 price)
+    {
+        price = Comet(comet).getPrice(strategy.priceFeeds(_asset));
     }
 }

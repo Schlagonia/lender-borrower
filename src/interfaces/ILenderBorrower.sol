@@ -3,8 +3,6 @@ pragma solidity ^0.8.18;
 
 interface ILenderBorrower {
     // Public Variables
-    function GOV() external view returns (address);
-
     function borrowToken() external view returns (address);
 
     function leaveDebtBehind() external view returns (bool);
@@ -58,6 +56,4 @@ interface ILenderBorrower {
     function manualWithdraw(address _token, uint256 _amount) external;
 
     function manualRepayDebt() external;
-
-    function sweep(address _token) external;
 }

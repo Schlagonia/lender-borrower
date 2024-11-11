@@ -11,8 +11,6 @@ import {BaseHealthCheck, ERC20} from "@periphery/Bases/HealthCheck/BaseHealthChe
 abstract contract BaseLenderBorrower is BaseHealthCheck {
     using SafeERC20 for ERC20;
 
-    address public immutable GOV;
-
     /// The token we will be borrowing/supplying.
     address public immutable borrowToken;
 
@@ -48,16 +46,13 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @param _asset The address of the asset we are lending/borrowing.
      * @param _name The name of the strategy.
      * @param _borrowToken The address of the borrow token.
-     * @param _gov The address of the governance contract.
      */
     constructor(
         address _asset,
         string memory _name,
-        address _borrowToken,
-        address _gov
+        address _borrowToken
     ) BaseHealthCheck(_asset, _name) {
         borrowToken = _borrowToken;
-        GOV = _gov;
 
         // Set default variables
         depositLimit = type(uint256).max;
@@ -67,8 +62,8 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         maxGasPriceToTend = 200 * 1e9;
         slippage = 500;
 
-        decimals[address(asset)] = asset.decimals();
-        decimals[borrowToken] = ERC20(borrowToken).decimals();
+        decimals[address(asset)] = 10**asset.decimals();
+        decimals[borrowToken] = 10**ERC20(borrowToken).decimals();
     }
 
     /// ----------------- SETTERS -----------------
@@ -361,7 +356,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     ) public view virtual override returns (uint256) {
         /// Default liquidity is the balance of collateral + 1 for rounding.
         uint256 liquidity = balanceOfCollateral() + 1;
-        uint256 lenderLiquidity = _lenderLiquidity();
+        uint256 lenderLiquidity = _lenderMaxWithdraw();
 
         /// If we can't withdraw or supply, set liquidity = 0.
         if (_isPaused()) {
@@ -408,7 +403,6 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         /// SUBOPTIMAL(borrow) (e.g. from 0 to 80% liqLTV)
         /// HEALTHY(do nothing) (e.g. from 80% to 90% liqLTV)
         /// UNHEALTHY(repay) (e.g. from 90% to 100% liqLTV)
-
         if (targetLTV > currentLTV) {
             /// SUBOPTIMAL RATIO: our current Loan-to-Value is lower than what we want
 
@@ -647,7 +641,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @notice Gets the amount of borrowToken that could be withdrawn from the lender
      * @return The lender liquidity
      */
-    function _lenderLiquidity() internal view virtual returns (uint256);
+    function _lenderMaxWithdraw() internal view virtual returns (uint256);
 
     /**
      * @notice Gets net borrow APR from depositor
@@ -793,7 +787,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
 
     /**
      * @notice Converts a token amount to USD value
-     * @dev Uses Compound price feed and token decimals
+     * @dev This assumes _getPrice returns constants 1e8 price
      * @param _amount The token amount
      * @param _token The token address
      * @return The USD value scaled by 1e8
@@ -812,7 +806,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
 
     /**
      * @notice Converts a USD amount to token value
-     * @dev Uses Compound price feed and token decimals
+     * @dev This assumes _getPrice returns constants 1e8 price
      * @param _amount The USD amount (scaled by 1e8)
      * @param _token The token address
      * @return The token amount
@@ -834,7 +828,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     /**
      * @notice Claims reward tokens from Comet and depositor
      */
-    function _claimRewards(bool _accrue) internal virtual;
+    function _claimRewards() internal virtual;
 
     /**
      * @notice Claims and sells available reward tokens
@@ -905,7 +899,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      */
     function _emergencyWithdraw(uint256 _amount) internal virtual override {
         if (_amount > 0) {
-            _withdrawBorrowToken(Math.min(_amount, _lenderLiquidity()));
+            _withdrawBorrowToken(Math.min(_amount, _lenderMaxWithdraw()));
         }
         // Repay everything we can.
         _repayTokenDebt();
@@ -948,13 +942,5 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     // Manually repay debt with loose borrowToken already in the strategy.
     function manualRepayDebt() external onlyEmergencyAuthorized {
         _repayTokenDebt();
-    }
-
-    /// @notice Sweep of non-asset ERC20 tokens to governance
-    /// @param _token The ERC20 token to sweep
-    function sweep(address _token) external {
-        require(msg.sender == GOV, "!gov");
-        require(_token != address(asset), "!asset");
-        ERC20(_token).safeTransfer(GOV, ERC20(_token).balanceOf(address(this)));
     }
 }
