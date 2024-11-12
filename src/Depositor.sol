@@ -84,10 +84,9 @@ contract Depositor is Clonable {
      * @param _comet The address of the Compound market
      * @return newDepositor The address of the cloned depositor contract
      */
-    function cloneDepositor(address _comet)
-        external
-        returns (address newDepositor)
-    {
+    function cloneDepositor(
+        address _comet
+    ) external returns (address newDepositor) {
         require(original == address(this), "!original");
         newDepositor = _clone();
 
@@ -247,11 +246,9 @@ contract Depositor is Clonable {
      * @param newAmount The amount to supply
      * @return netApr The estimated net borrow APR
      */
-    function getNetBorrowApr(uint256 newAmount)
-        public
-        view
-        returns (uint256 netApr)
-    {
+    function getNetBorrowApr(
+        uint256 newAmount
+    ) public view returns (uint256 netApr) {
         Comet _comet = comet;
         uint256 newUtilization = ((_comet.totalBorrow() + newAmount) * 1e18) /
             (_comet.totalSupply() + newAmount);
@@ -266,11 +263,9 @@ contract Depositor is Clonable {
      * @param newUtilization The utilization ratio
      * @return The supply APR
      */
-    function getSupplyApr(uint256 newUtilization)
-        public
-        view
-        returns (uint256)
-    {
+    function getSupplyApr(
+        uint256 newUtilization
+    ) public view returns (uint256) {
         unchecked {
             return comet.getSupplyRate(newUtilization) * SECONDS_PER_YEAR;
         }
@@ -281,11 +276,9 @@ contract Depositor is Clonable {
      * @param newUtilization The utilization ratio
      * @return The borrow APR
      */
-    function getBorrowApr(uint256 newUtilization)
-        public
-        view
-        returns (uint256)
-    {
+    function getBorrowApr(
+        uint256 newUtilization
+    ) public view returns (uint256) {
         unchecked {
             return comet.getBorrowRate(newUtilization) * SECONDS_PER_YEAR;
         }
@@ -304,11 +297,9 @@ contract Depositor is Clonable {
      * @param newAmount The new amount to supply
      * @return The reward APR in USD as a decimal scaled up by 1e18
      */
-    function getRewardAprForSupplyBase(uint256 newAmount)
-        public
-        view
-        returns (uint256)
-    {
+    function getRewardAprForSupplyBase(
+        uint256 newAmount
+    ) public view returns (uint256) {
         Comet _comet = comet;
         unchecked {
             uint256 rewardToSuppliersPerDay = _comet.baseTrackingSupplySpeed() *
@@ -328,11 +319,9 @@ contract Depositor is Clonable {
      * @param newAmount The new amount to borrow
      * @return The reward APR in USD as a decimal scaled up by 1e18
      */
-    function getRewardAprForBorrowBase(uint256 newAmount)
-        public
-        view
-        returns (uint256)
-    {
+    function getRewardAprForBorrowBase(
+        uint256 newAmount
+    ) public view returns (uint256) {
         /// borrowBaseRewardApr = (rewardTokenPriceInUsd * rewardToBorrowersPerDay / (borrowTokenTotalBorrow * borrowTokenPriceInUsd)) * DAYS_PER_YEAR;
         Comet _comet = comet;
         unchecked {
@@ -348,11 +337,9 @@ contract Depositor is Clonable {
         }
     }
 
-    function _pessimisticPrice(uint256 _oraclePrice)
-        internal
-        view
-        returns (uint256)
-    {
+    function _pessimisticPrice(
+        uint256 _oraclePrice
+    ) internal view returns (uint256) {
         return (_oraclePrice * (MAX_BPS - buffer)) / MAX_BPS;
     }
 

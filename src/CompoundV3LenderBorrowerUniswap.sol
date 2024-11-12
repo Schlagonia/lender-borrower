@@ -45,10 +45,9 @@ contract CompoundV3LenderBorrowerUniswap is
         _setFees(3000, 500, _ethToAssetFee);
     }
 
-    function setMinAmountToSell(uint256 _minAmountToSell)
-        external
-        onlyManagement
-    {
+    function setMinAmountToSell(
+        uint256 _minAmountToSell
+    ) external onlyManagement {
         minAmountToSell = _minAmountToSell;
     }
 

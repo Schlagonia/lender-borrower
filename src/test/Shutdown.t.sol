@@ -282,12 +282,9 @@ contract ShutdownTest is Setup {
         assertTrue(!trigger);
 
         // Move all the USDC to the strategy and swap -> asset
-        vm.prank(management);
-        depositor.manualWithdraw(type(uint256).max);
-
-        uint256 strategyBalance = Comet(comet).balanceOf(address(strategy));
-        vm.prank(management);
-        strategy.manualWithdraw(borrowToken, strategyBalance);
+        vm.startPrank(management);
+        depositor.manualWithdraw(depositor.cometBalance());
+        vm.stopPrank();
 
         // Lower min to sell
         vm.startPrank(management);

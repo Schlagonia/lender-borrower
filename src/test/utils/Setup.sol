@@ -152,11 +152,7 @@ contract Setup is ExtendedTest, IEvents {
         assertEq(_totalAssets, _totalDebt + _totalIdle, "!Added");
     }
 
-    function airdrop(
-        ERC20 _asset,
-        address _to,
-        uint256 _amount
-    ) public {
+    function airdrop(ERC20 _asset, address _to, uint256 _amount) public {
         uint256 balanceBefore = _asset.balanceOf(_to);
         deal(address(_asset), _to, balanceBefore + _amount);
     }
@@ -188,37 +184,33 @@ contract Setup is ExtendedTest, IEvents {
         comets["USDT"] = 0x3Afdc9BCA9213A35503b077a6072F3D0d5AB0840;
     }
 
-    function _toUsd(uint256 _amount, address _token)
-        internal
-        view
-        returns (uint256)
-    {
+    function _toUsd(
+        uint256 _amount,
+        address _token
+    ) internal view returns (uint256) {
         if (_amount == 0) return 0;
         unchecked {
             return
                 (_amount * _getCompoundPrice(_token)) /
-                (uint256(10**ERC20(_token).decimals()));
+                (uint256(10 ** ERC20(_token).decimals()));
         }
     }
 
-    function _fromUsd(uint256 _amount, address _token)
-        internal
-        view
-        returns (uint256)
-    {
+    function _fromUsd(
+        uint256 _amount,
+        address _token
+    ) internal view returns (uint256) {
         if (_amount == 0) return 0;
         unchecked {
             return
-                (_amount * (uint256(10**ERC20(_token).decimals()))) /
+                (_amount * (uint256(10 ** ERC20(_token).decimals()))) /
                 _getCompoundPrice(_token);
         }
     }
 
-    function _getCompoundPrice(address _asset)
-        internal
-        view
-        returns (uint256 price)
-    {
+    function _getCompoundPrice(
+        address _asset
+    ) internal view returns (uint256 price) {
         price = Comet(comet).getPrice(strategy.priceFeeds(_asset));
     }
 }

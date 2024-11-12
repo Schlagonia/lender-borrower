@@ -123,11 +123,9 @@ contract StrategyFactory {
         oracle = _oracle;
     }
 
-    function isDeployedStrategy(address _strategy)
-        external
-        view
-        returns (bool)
-    {
+    function isDeployedStrategy(
+        address _strategy
+    ) external view returns (bool) {
         address _asset = IStrategyInterface(_strategy).asset();
         address _comet = IStrategyInterface(_strategy).comet();
         return deployedStrategy[_asset][_comet] == _strategy;

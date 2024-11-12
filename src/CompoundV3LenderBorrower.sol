@@ -65,7 +65,7 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
 
         priceFeeds[rewardToken] = 0xdbd020CAeF83eFd542f4De03e3cF0C28A4428bd5;
 
-        decimals[rewardToken] = 10**ERC20(rewardToken).decimals();
+        decimals[rewardToken] = 10 ** ERC20(rewardToken).decimals();
     }
 
     /**
@@ -75,10 +75,10 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
      * @param _token Address of the token for which to set the price feed
      * @param _priceFeed Address of the price feed contract
      */
-    function setPriceFeed(address _token, address _priceFeed)
-        external
-        onlyManagement
-    {
+    function setPriceFeed(
+        address _token,
+        address _priceFeed
+    ) external onlyManagement {
         // just check it doesn't revert
         comet.getPrice(_priceFeed);
         priceFeeds[_token] = _priceFeed;
@@ -121,9 +121,7 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
     /**
      * @notice Lends a specified amount of `borrowToken`.
      */
-    function _lendBorrowToken(
-        uint256 /*amount*/
-    ) internal virtual override {
+    function _lendBorrowToken(uint256 /*amount*/) internal virtual override {
         depositor.deposit();
     }
 
@@ -132,14 +130,6 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
      * @param amount The amount of the borrowToken to withdraw.
      */
     function _withdrawBorrowToken(uint256 amount) internal virtual override {
-        uint256 balancePrior = balanceOfBorrowToken();
-        /// Only withdraw what we don't already have free
-        amount = balancePrior >= amount ? 0 : amount - balancePrior;
-        if (amount == 0) return;
-
-        /// Make sure we have enough balance.
-        amount = Math.min(amount, _lenderMaxWithdraw());
-
         depositor.withdraw(amount);
     }
 
@@ -150,13 +140,9 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
      * @param _asset The asset address
      * @return price asset price
      */
-    function _getPrice(address _asset)
-        internal
-        view
-        virtual
-        override
-        returns (uint256 price)
-    {
+    function _getPrice(
+        address _asset
+    ) internal view virtual override returns (uint256 price) {
         price = comet.getPrice(_getPriceFeedAddress(_asset));
         /// If weth is base token we need to scale response to e18
         if (price == 1e8 && _asset == WETH) price = 1e18;
@@ -167,11 +153,9 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
      * @param _asset The asset address
      * @return priceFeed price feed address
      */
-    function _getPriceFeedAddress(address _asset)
-        internal
-        view
-        returns (address priceFeed)
-    {
+    function _getPriceFeedAddress(
+        address _asset
+    ) internal view returns (address priceFeed) {
         priceFeed = priceFeeds[_asset];
         if (priceFeed == address(0)) {
             priceFeed = comet.getAssetInfoByAddress(_asset).priceFeed;
@@ -249,13 +233,9 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
      * @param newAmount Simulated supply amount
      * @return Net borrow APR
      */
-    function getNetBorrowApr(uint256 newAmount)
-        public
-        view
-        virtual
-        override
-        returns (uint256)
-    {
+    function getNetBorrowApr(
+        uint256 newAmount
+    ) public view virtual override returns (uint256) {
         return depositor.getNetBorrowApr(newAmount);
     }
 
@@ -264,13 +244,9 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
      * @param newAmount Simulated supply amount
      * @return Net reward APR
      */
-    function getNetRewardApr(uint256 newAmount)
-        public
-        view
-        virtual
-        override
-        returns (uint256)
-    {
+    function getNetRewardApr(
+        uint256 newAmount
+    ) public view virtual override returns (uint256) {
         return depositor.getNetRewardApr(newAmount);
     }
 
