@@ -1,50 +1,93 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.18;
 
-import {LenderBorrower, ERC20} from "./LenderBorrower.sol";
+import {Depositor, Comet, ERC20} from "./Depositor.sol";
+import {CompoundV3LenderBorrowerUniswap} from "./CompoundV3LenderBorrowerUniswap.sol";
 import {IStrategyInterface} from "./interfaces/IStrategyInterface.sol";
+
+interface IOracle {
+    function setOracle(address, address) external;
+}
 
 contract StrategyFactory {
     event NewStrategy(address indexed strategy, address indexed asset);
 
+    address public immutable gov;
+    address public immutable weth;
     address public immutable emergencyAdmin;
 
     address public management;
     address public performanceFeeRecipient;
     address public keeper;
 
-    /// @notice Track the deployments. asset => pool => strategy
-    mapping(address => address) public deployments;
+    address public oracle;
+    address internal constant APR_ORACLE =
+        0x1981AD9F44F2EA9aDd2dC4AD7D075c102C70aF92;
+
+    /// @notice Address of the original depositor contract used for cloning
+    address public immutable originalDepositor;
+
+    /// @notice Mapping of an asset => comet => its deployed strategy if exists
+    mapping(address => mapping(address => address)) public deployedStrategy;
 
     constructor(
+        address _gov,
+        address _weth,
         address _management,
         address _performanceFeeRecipient,
         address _keeper,
         address _emergencyAdmin
     ) {
+        gov = _gov;
+        weth = _weth;
         management = _management;
         performanceFeeRecipient = _performanceFeeRecipient;
         keeper = _keeper;
         emergencyAdmin = _emergencyAdmin;
+
+        originalDepositor = address(new Depositor());
     }
 
     /**
      * @notice Deploy a new Strategy.
      * @param _asset The underlying asset for the strategy to use.
-     * @param _borrowToken The borrow token for the strategy to use.
-     * @param _gov The governance address for the strategy to use.
+     * @param _name The name of the strategy.
+     * @param _comet The comet address for the strategy to use.
+     * @param _ethToAssetFee The fee for the strategy to use.
      * @return . The address of the new strategy.
      */
     function newStrategy(
         address _asset,
         string calldata _name,
-        address _borrowToken,
-        address _gov
+        address _comet,
+        uint24 _ethToAssetFee
     ) external virtual returns (address) {
+        require(
+            deployedStrategy[_asset][_comet] == address(0),
+            "already deployed"
+        );
+
+        address borrowToken = Comet(_comet).baseToken();
+        address depositor = Depositor(originalDepositor).cloneDepositor(_comet);
+
         // tokenized strategies available setters.
         IStrategyInterface _newStrategy = IStrategyInterface(
-            address(0) //new LenderBorrower(_asset, _name, _borrowToken, _gov))
+            address(
+                new CompoundV3LenderBorrowerUniswap(
+                    _asset,
+                    _name,
+                    borrowToken,
+                    gov,
+                    weth,
+                    _comet,
+                    depositor,
+                    _ethToAssetFee
+                )
+            )
         );
+
+        /// Set strategy on Depositor.
+        Depositor(depositor).setStrategy(address(_newStrategy));
 
         _newStrategy.setPerformanceFeeRecipient(performanceFeeRecipient);
 
@@ -54,9 +97,12 @@ contract StrategyFactory {
 
         _newStrategy.setEmergencyAdmin(emergencyAdmin);
 
+        IOracle(APR_ORACLE).setOracle(address(_newStrategy), oracle);
+
         emit NewStrategy(address(_newStrategy), _asset);
 
-        deployments[_asset] = address(_newStrategy);
+        deployedStrategy[_asset][_comet] = address(_newStrategy);
+
         return address(_newStrategy);
     }
 
@@ -71,12 +117,16 @@ contract StrategyFactory {
         keeper = _keeper;
     }
 
-    function isDeployedStrategy(address _strategy)
-        external
-        view
-        returns (bool)
-    {
+    function setOracle(address _oracle) external {
+        require(msg.sender == management, "!management");
+        oracle = _oracle;
+    }
+
+    function isDeployedStrategy(
+        address _strategy
+    ) external view returns (bool) {
         address _asset = IStrategyInterface(_strategy).asset();
-        return deployments[_asset] == _strategy;
+        address _comet = IStrategyInterface(_strategy).comet();
+        return deployedStrategy[_asset][_comet] == _strategy;
     }
 }
