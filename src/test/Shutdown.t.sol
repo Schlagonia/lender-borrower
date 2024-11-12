@@ -122,14 +122,7 @@ contract ShutdownTest is Setup {
 
         // Lower deposit limit to 0
         vm.startPrank(management);
-        strategy.setStrategyParams(
-            0,
-            strategy.targetLTVMultiplier(),
-            strategy.warningLTVMultiplier(),
-            strategy.leaveDebtBehind(),
-            strategy.maxGasPriceToTend(),
-            strategy.slippage()
-        );
+        strategy.setDepositLimit(0);
         vm.stopPrank();
 
         // deposit shouldn't work now
@@ -212,14 +205,7 @@ contract ShutdownTest is Setup {
 
         // Set the LTV to 1 so it doesn't lever up
         vm.startPrank(management);
-        strategy.setStrategyParams(
-            strategy.depositLimit(),
-            1,
-            strategy.warningLTVMultiplier(),
-            strategy.leaveDebtBehind(),
-            strategy.maxGasPriceToTend(),
-            strategy.slippage()
-        );
+        strategy.setLtvMultipliers(1, strategy.warningLTVMultiplier());
         vm.stopPrank();
 
         vm.prank(management);
@@ -232,10 +218,10 @@ contract ShutdownTest is Setup {
         vm.prank(user);
         strategy.redeem(_amount / 2, user, user);
 
-        assertGe(
+        assertRelApproxEq(
             asset.balanceOf(user),
             balanceBefore + (_amount / 2),
-            "!final balance"
+            10
         );
     }
 

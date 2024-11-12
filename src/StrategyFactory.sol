@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.18;
 
-import {LenderBorrower, Depositor, Comet, ERC20} from "./LenderBorrower.sol";
+import {Depositor, Comet, ERC20} from "./Depositor.sol";
+import {CompoundV3LenderBorrowerUniswap} from "./CompoundV3LenderBorrowerUniswap.sol";
 import {IStrategyInterface} from "./interfaces/IStrategyInterface.sol";
+
+interface IOracle {
+    function setOracle(address, address) external;
+}
 
 contract StrategyFactory {
     event NewStrategy(address indexed strategy, address indexed asset);
@@ -14,6 +19,10 @@ contract StrategyFactory {
     address public management;
     address public performanceFeeRecipient;
     address public keeper;
+
+    address public oracle;
+    address internal constant APR_ORACLE =
+        0x1981AD9F44F2EA9aDd2dC4AD7D075c102C70aF92;
 
     /// @notice Address of the original depositor contract used for cloning
     address public immutable originalDepositor;
@@ -65,7 +74,7 @@ contract StrategyFactory {
         // tokenized strategies available setters.
         IStrategyInterface _newStrategy = IStrategyInterface(
             address(
-                new LenderBorrower(
+                new CompoundV3LenderBorrowerUniswap(
                     _asset,
                     _name,
                     borrowToken,
@@ -89,6 +98,8 @@ contract StrategyFactory {
 
         _newStrategy.setEmergencyAdmin(emergencyAdmin);
 
+        IOracle(APR_ORACLE).setOracle(address(_newStrategy), oracle);
+
         emit NewStrategy(address(_newStrategy), _asset);
 
         deployedStrategy[_asset][_comet] = address(_newStrategy);
@@ -105,6 +116,11 @@ contract StrategyFactory {
         management = _management;
         performanceFeeRecipient = _performanceFeeRecipient;
         keeper = _keeper;
+    }
+
+    function setOracle(address _oracle) external {
+        require(msg.sender == management, "!management");
+        oracle = _oracle;
     }
 
     function isDeployedStrategy(address _strategy)

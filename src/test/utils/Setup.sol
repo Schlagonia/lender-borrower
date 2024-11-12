@@ -4,7 +4,8 @@ pragma solidity ^0.8.18;
 import "forge-std/console2.sol";
 import {ExtendedTest} from "./ExtendedTest.sol";
 
-import {LenderBorrower, Depositor, Comet, ERC20} from "../../LenderBorrower.sol";
+import {Depositor, Comet, ERC20} from "../../Depositor.sol";
+import {CompoundV3LenderBorrowerUniswap} from "../../CompoundV3LenderBorrowerUniswap.sol";
 import {StrategyFactory} from "../../StrategyFactory.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
 

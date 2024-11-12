@@ -69,34 +69,57 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     /// ----------------- SETTERS -----------------
 
     /**
-     * @notice Set the parameters for the strategy
-     * @dev Updates multiple strategy parameters to optimize contract bytecode size.
-     * Ensure `_warningLTVMultiplier` is less than 9000 and `_targetLTVMultiplier` is less than `_warningLTVMultiplier`
-     * Can only be called by management
-     * @param _targetLTVMultiplier Desired target loan-to-value multiplier
-     * @param _warningLTVMultiplier Warning threshold for loan-to-value multiplier
-     * @param _leaveDebtBehind Bool to prevent debt repayment
-     * @param _maxGasPriceToTend Maximum gas price for the tend operation
-     * @param _slippage Slippage tolerance for swaps
+     * @notice Set the deposit limit for the strategy
+     * @param _depositLimit New deposit limit
      */
-    function setStrategyParams(
-        uint256 _depositLimit,
+    function setDepositLimit(uint256 _depositLimit) external onlyManagement {
+        depositLimit = _depositLimit;
+    }
+
+    /**
+     * @notice Set the target and warning LTV multipliers
+     * @param _targetLTVMultiplier New target LTV multiplier
+     * @param _warningLTVMultiplier New warning LTV multiplier
+     * @dev Target must be less than warning, warning must be <= 9000, target cannot be 0
+     */
+    function setLtvMultipliers(
         uint16 _targetLTVMultiplier,
-        uint16 _warningLTVMultiplier,
-        bool _leaveDebtBehind,
-        uint256 _maxGasPriceToTend,
-        uint256 _slippage
-    ) external virtual onlyManagement {
+        uint16 _warningLTVMultiplier
+    ) external onlyManagement {
         require(
             _warningLTVMultiplier <= 9_000 &&
                 _targetLTVMultiplier < _warningLTVMultiplier &&
-                _targetLTVMultiplier != 0
+                _targetLTVMultiplier != 0,
+            "invalid LTV"
         );
-        depositLimit = _depositLimit;
         targetLTVMultiplier = _targetLTVMultiplier;
         warningLTVMultiplier = _warningLTVMultiplier;
+    }
+
+    /**
+     * @notice Set whether to leave debt behind
+     * @param _leaveDebtBehind New leave debt behind setting
+     */
+    function setLeaveDebtBehind(bool _leaveDebtBehind) external onlyManagement {
         leaveDebtBehind = _leaveDebtBehind;
+    }
+
+    /**
+     * @notice Set the maximum gas price for tending
+     * @param _maxGasPriceToTend New maximum gas price
+     */
+    function setMaxGasPriceToTend(uint256 _maxGasPriceToTend)
+        external
+        onlyManagement
+    {
         maxGasPriceToTend = _maxGasPriceToTend;
+    }
+
+    /**
+     * @notice Set the slippage tolerance
+     * @param _slippage New slippage tolerance in basis points
+     */
+    function setSlippage(uint256 _slippage) external onlyManagement {
         require(_slippage < MAX_BPS, "slippage");
         slippage = _slippage;
     }

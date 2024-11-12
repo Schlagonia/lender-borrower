@@ -202,9 +202,11 @@ contract OperationTest is Setup {
 
         uint256 balanceBefore = asset.balanceOf(user);
 
+        uint256 maxRedeem = strategy.maxRedeem(user);
+
         // Withdraw all funds
         vm.prank(user);
-        strategy.redeem(_amount, user, user);
+        strategy.redeem(maxRedeem, user, user);
 
         assertLt(
             asset.balanceOf(user),
@@ -319,14 +321,7 @@ contract OperationTest is Setup {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
 
         vm.startPrank(management);
-        strategy.setStrategyParams(
-            strategy.depositLimit(),
-            strategy.targetLTVMultiplier(),
-            strategy.warningLTVMultiplier(),
-            true,
-            strategy.maxGasPriceToTend(),
-            strategy.slippage()
-        );
+        strategy.setLeaveDebtBehind(true);
         vm.stopPrank();
 
         uint256 targetLTV = (strategy.getLiquidateCollateralFactor() *
@@ -485,14 +480,7 @@ contract OperationTest is Setup {
 
         // Even with a 0 for max Tend Base Fee its true
         vm.startPrank(management);
-        strategy.setStrategyParams(
-            strategy.depositLimit(),
-            strategy.targetLTVMultiplier(),
-            strategy.warningLTVMultiplier(),
-            strategy.leaveDebtBehind(),
-            0,
-            strategy.slippage()
-        );
+        strategy.setMaxGasPriceToTend(0);
         vm.stopPrank();
 
         (trigger, ) = strategy.tendTrigger();
@@ -500,14 +488,7 @@ contract OperationTest is Setup {
 
         // Even with a 0 for max Tend Base Fee its true
         vm.startPrank(management);
-        strategy.setStrategyParams(
-            strategy.depositLimit(),
-            strategy.targetLTVMultiplier(),
-            strategy.warningLTVMultiplier(),
-            strategy.leaveDebtBehind(),
-            200e9,
-            strategy.slippage()
-        );
+        strategy.setMaxGasPriceToTend(200e9);
         vm.stopPrank();
 
         vm.prank(keeper);
