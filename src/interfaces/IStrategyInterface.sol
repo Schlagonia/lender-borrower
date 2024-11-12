@@ -6,4 +6,8 @@ import {ILenderBorrower} from "./ILenderBorrower.sol";
 
 interface IStrategyInterface is IStrategy, ILenderBorrower {
     //TODO: Add your specific implementation interface in here.
+
+    function GOV() external view returns (address);
+
+    function sweep(address _token) external;
 }

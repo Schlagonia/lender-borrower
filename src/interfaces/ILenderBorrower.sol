@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.18;
 
-interface ILenderBorrower {
-    // Public Variables
-    function GOV() external view returns (address);
+import {IBaseHealthCheck} from "@periphery/Bases/HealthCheck/IBaseHealthCheck.sol";
 
+interface ILenderBorrower is IBaseHealthCheck {
+    // Public Variables
     function borrowToken() external view returns (address);
 
     function leaveDebtBehind() external view returns (bool);
@@ -20,14 +20,18 @@ interface ILenderBorrower {
     function slippage() external view returns (uint256);
 
     // External Functions
-    function setStrategyParams(
-        uint256 _depositLimit,
+    function setDepositLimit(uint256 _depositLimit) external;
+
+    function setLtvMultipliers(
         uint16 _targetLTVMultiplier,
-        uint16 _warningLTVMultiplier,
-        bool _leaveDebtBehind,
-        uint256 _maxGasPriceToTend,
-        uint256 _slippage
+        uint16 _warningLTVMultiplier
     ) external;
+
+    function setLeaveDebtBehind(bool _leaveDebtBehind) external;
+
+    function setMaxGasPriceToTend(uint256 _maxGasPriceToTend) external;
+
+    function setSlippage(uint256 _slippage) external;
 
     // Public View Functions
     function getCurrentLTV() external view returns (uint256);
@@ -58,6 +62,4 @@ interface ILenderBorrower {
     function manualWithdraw(address _token, uint256 _amount) external;
 
     function manualRepayDebt() external;
-
-    function sweep(address _token) external;
 }

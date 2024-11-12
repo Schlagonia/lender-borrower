@@ -7,6 +7,7 @@ import {IStrategyInterface} from "./interfaces/IStrategyInterface.sol";
 contract StrategyFactory {
     event NewStrategy(address indexed strategy, address indexed asset);
 
+    address public immutable GOV;
     address public immutable emergencyAdmin;
 
     address public management;
@@ -20,30 +21,31 @@ contract StrategyFactory {
         address _management,
         address _performanceFeeRecipient,
         address _keeper,
-        address _emergencyAdmin
+        address _emergencyAdmin,
+        address _gov
     ) {
         management = _management;
         performanceFeeRecipient = _performanceFeeRecipient;
         keeper = _keeper;
         emergencyAdmin = _emergencyAdmin;
+        GOV = _gov;
     }
 
     /**
      * @notice Deploy a new Strategy.
      * @param _asset The underlying asset for the strategy to use.
+     * @param _name The name of the strategy.
      * @param _borrowToken The borrow token for the strategy to use.
-     * @param _gov The governance address for the strategy to use.
      * @return . The address of the new strategy.
      */
     function newStrategy(
         address _asset,
         string calldata _name,
-        address _borrowToken,
-        address _gov
+        address _borrowToken
     ) external virtual returns (address) {
         // tokenized strategies available setters.
         IStrategyInterface _newStrategy = IStrategyInterface(
-            address(0) //new LenderBorrower(_asset, _name, _borrowToken, _gov))
+            address(0) //new LenderBorrower(_asset, _name, _borrowToken, GOV))
         );
 
         _newStrategy.setPerformanceFeeRecipient(performanceFeeRecipient);
@@ -71,11 +73,9 @@ contract StrategyFactory {
         keeper = _keeper;
     }
 
-    function isDeployedStrategy(address _strategy)
-        external
-        view
-        returns (bool)
-    {
+    function isDeployedStrategy(
+        address _strategy
+    ) external view returns (bool) {
         address _asset = IStrategyInterface(_strategy).asset();
         return deployments[_asset] == _strategy;
     }

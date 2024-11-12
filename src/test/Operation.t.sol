@@ -22,11 +22,19 @@ contract OperationTest is Setup {
     function test_operation(uint256 _amount) public {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
 
+        uint256 targetLTV = (strategy.getLiquidateCollateralFactor() *
+            strategy.targetLTVMultiplier()) / MAX_BPS;
         // Deposit into strategy
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
-        assertEq(strategy.totalAssets(), _amount, "!totalAssets");
-
+        checkStrategyTotals(strategy, _amount, _amount, 0);
+        assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
+        assertEq(strategy.balanceOfCollateral(), _amount, "collateral");
+        assertApproxEq(
+            strategy.balanceOfDebt(),
+            strategy.balanceOfLentAssets(),
+            3
+        );
         // Earn Interest
         skip(1 days);
 
@@ -53,30 +61,68 @@ contract OperationTest is Setup {
         );
     }
 
-    function test_profitableReport(uint256 _amount, uint16 _profitFactor)
-        public
-    {
+    function test_partialWithdraw_lowerLTV(uint256 _amount) public {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
-        _profitFactor = uint16(bound(uint256(_profitFactor), 10, MAX_BPS));
 
+        uint256 targetLTV = (strategy.getLiquidateCollateralFactor() *
+            strategy.targetLTVMultiplier()) / MAX_BPS;
         // Deposit into strategy
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
-        assertEq(strategy.totalAssets(), _amount, "!totalAssets");
-
+        checkStrategyTotals(strategy, _amount, _amount, 0);
+        assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
+        assertEq(strategy.balanceOfCollateral(), _amount, "collateral");
+        assertApproxEq(
+            strategy.balanceOfDebt(),
+            strategy.balanceOfLentAssets(),
+            3
+        );
         // Earn Interest
         skip(1 days);
 
-        // TODO: implement logic to simulate earning interest.
-        uint256 toAirdrop = (_amount * _profitFactor) / MAX_BPS;
-        airdrop(asset, address(strategy), toAirdrop);
+        // lower LTV
+        uint256 borrowed = strategy.balanceOfDebt();
+        airdrop(ERC20(borrowToken), address(strategy), borrowed / 4);
+
+        vm.prank(management);
+        strategy.manualRepayDebt();
+
+        assertLt(strategy.getCurrentLTV(), targetLTV);
+
+        uint256 balanceBefore = asset.balanceOf(user);
+
+        // Withdraw all funds
+        vm.prank(user);
+        strategy.redeem(_amount / 2, user, user, 1);
+
+        assertGe(
+            asset.balanceOf(user),
+            ((balanceBefore + (_amount / 2)) * 9_999) / MAX_BPS,
+            "!final balance"
+        );
+    }
+
+    function test_profitableReport(uint256 _amount) public {
+        vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
+
+        uint256 targetLTV = (strategy.getLiquidateCollateralFactor() *
+            strategy.targetLTVMultiplier()) / MAX_BPS;
+        // Deposit into strategy
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        checkStrategyTotals(strategy, _amount, _amount, 0);
+
+        // Earn Interest
+        skip(1 days);
 
         // Report profit
         vm.prank(keeper);
         (uint256 profit, uint256 loss) = strategy.report();
 
+        assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
+        assertGt(strategy.totalAssets(), _amount);
         // Check return Values
-        assertGe(profit, toAirdrop, "!profit");
+        assertGt(profit, 0, "!profit");
         assertEq(loss, 0, "!loss");
 
         skip(strategy.profitMaxUnlockTime());
@@ -85,21 +131,21 @@ contract OperationTest is Setup {
 
         // Withdraw all funds
         vm.prank(user);
-        strategy.redeem(_amount, user, user);
+        strategy.redeem(_amount / 2, user, user);
 
         assertGe(
             asset.balanceOf(user),
-            balanceBefore + _amount,
+            balanceBefore + (_amount / 2),
             "!final balance"
         );
+
+        assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
     }
 
-    function test_profitableReport_withFees(
-        uint256 _amount,
-        uint16 _profitFactor
-    ) public {
+    function test_profitableReport_withFees(uint256 _amount) public {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
-        _profitFactor = uint16(bound(uint256(_profitFactor), 10, MAX_BPS));
+        uint256 targetLTV = (strategy.getLiquidateCollateralFactor() *
+            strategy.targetLTVMultiplier()) / MAX_BPS;
 
         // Set protocol fee to 0 and perf fee to 10%
         setFees(0, 1_000);
@@ -107,21 +153,18 @@ contract OperationTest is Setup {
         // Deposit into strategy
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
-        assertEq(strategy.totalAssets(), _amount, "!totalAssets");
+        checkStrategyTotals(strategy, _amount, _amount, 0);
+        assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
 
         // Earn Interest
         skip(1 days);
 
-        // TODO: implement logic to simulate earning interest.
-        uint256 toAirdrop = (_amount * _profitFactor) / MAX_BPS;
-        airdrop(asset, address(strategy), toAirdrop);
-
         // Report profit
         vm.prank(keeper);
         (uint256 profit, uint256 loss) = strategy.report();
-
+        assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
         // Check return Values
-        assertGe(profit, toAirdrop, "!profit");
+        assertGt(profit, 0, "!profit");
         assertEq(loss, 0, "!loss");
 
         skip(strategy.profitMaxUnlockTime());
@@ -143,6 +186,8 @@ contract OperationTest is Setup {
             "!final balance"
         );
 
+        //assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
+
         vm.prank(performanceFeeRecipient);
         strategy.redeem(
             expectedShares,
@@ -159,9 +204,50 @@ contract OperationTest is Setup {
         );
     }
 
+    function test_leaveDebtBehind_realizesLoss(uint256 _amount) public {
+        vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
+
+        vm.startPrank(management);
+        strategy.setLeaveDebtBehind(true);
+        vm.stopPrank();
+
+        uint256 targetLTV = (strategy.getLiquidateCollateralFactor() *
+            strategy.targetLTVMultiplier()) / MAX_BPS;
+        // Deposit into strategy
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        checkStrategyTotals(strategy, _amount, _amount, 0);
+        assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
+        assertEq(strategy.balanceOfCollateral(), _amount, "collateral");
+        assertApproxEq(
+            strategy.balanceOfDebt(),
+            strategy.balanceOfLentAssets(),
+            3
+        );
+        // Earn unrealized profit.
+        skip(1 days);
+
+        uint256 balanceBefore = asset.balanceOf(user);
+
+        // Redeem all funds. Default maxLoss == 10_000.
+        vm.prank(user);
+        strategy.redeem(_amount, user, user);
+
+        // We should not have got the full amount out.
+        assertLt(
+            asset.balanceOf(user),
+            balanceBefore + _amount,
+            "!final balance"
+        );
+    }
+
     function test_tendTrigger(uint256 _amount) public {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
 
+        uint256 targetLTV = (strategy.getLiquidateCollateralFactor() *
+            strategy.targetLTVMultiplier()) / MAX_BPS;
+
+        // No assets should be false.
         (bool trigger, ) = strategy.tendTrigger();
         assertTrue(!trigger);
 
@@ -177,11 +263,63 @@ contract OperationTest is Setup {
         (trigger, ) = strategy.tendTrigger();
         assertTrue(!trigger);
 
+        // Borrow too much.
+        uint256 toBorrow = (strategy.balanceOfCollateral() *
+            ((strategy.getLiquidateCollateralFactor() *
+                strategy.warningLTVMultiplier()) / MAX_BPS)) / 1e18;
+
+        toBorrow = _fromUsd(_toUsd(toBorrow, address(asset)), borrowToken);
+
+        // TODO: Simulate borrowing too much for LTV.
+        //vm.startPrank(address(strategy));
+        // Comet(comet).withdraw(
+        //     address(borrowToken),
+        //     toBorrow - strategy.balanceOfDebt() + 100000
+        // );
+        //vm.stopPrank();
+
+        (trigger, ) = strategy.tendTrigger();
+        assertTrue(trigger, "warning ltv");
+
+        // Even with a 0 for max Tend Base Fee its true
+        vm.startPrank(management);
+        strategy.setMaxGasPriceToTend(0);
+        vm.stopPrank();
+
+        (trigger, ) = strategy.tendTrigger();
+        assertTrue(trigger, "warning ltv 2");
+
+        // Even with a 0 for max Tend Base Fee its true
+        vm.startPrank(management);
+        strategy.setMaxGasPriceToTend(200e9);
+        vm.stopPrank();
+
+        vm.prank(keeper);
+        strategy.tend();
+
+        (trigger, ) = strategy.tendTrigger();
+        assertTrue(!trigger, "post tend");
+
         vm.prank(keeper);
         strategy.report();
 
+        // Lower LTV
+        uint256 borrowed = strategy.balanceOfDebt();
+        airdrop(ERC20(borrowToken), address(strategy), borrowed / 2);
+
+        vm.prank(management);
+        strategy.manualRepayDebt();
+
+        assertLt(strategy.getCurrentLTV(), targetLTV);
+
         (trigger, ) = strategy.tendTrigger();
-        assertTrue(!trigger);
+        assertTrue(trigger);
+
+        vm.prank(keeper);
+        strategy.tend();
+
+        (trigger, ) = strategy.tendTrigger();
+        assertTrue(!trigger, "post tend");
 
         // Unlock Profits
         skip(strategy.profitMaxUnlockTime());

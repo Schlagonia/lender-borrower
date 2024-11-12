@@ -26,9 +26,12 @@ contract Setup is ExtendedTest, IEvents {
 
     StrategyFactory public strategyFactory;
 
+    address public borrowToken;
+
     mapping(string => address) public tokenAddrs;
 
     // Addresses for different roles we will use repeatedly.
+    address public gov = address(69);
     address public user = address(10);
     address public keeper = address(4);
     address public management = address(1);
@@ -62,11 +65,14 @@ contract Setup is ExtendedTest, IEvents {
             management,
             performanceFeeRecipient,
             keeper,
-            emergencyAdmin
+            emergencyAdmin,
+            gov
         );
 
         // Deploy strategy and set variables
         strategy = IStrategyInterface(setUpStrategy());
+
+        borrowToken = strategy.borrowToken();
 
         factory = strategy.FACTORY();
 
@@ -86,8 +92,7 @@ contract Setup is ExtendedTest, IEvents {
                 strategyFactory.newStrategy(
                     address(asset),
                     "Tokenized Strategy",
-                    address(asset),
-                    management
+                    borrowToken
                 )
             )
         );
@@ -138,23 +143,19 @@ contract Setup is ExtendedTest, IEvents {
         assertEq(_totalAssets, _totalDebt + _totalIdle, "!Added");
     }
 
-    function airdrop(
-        ERC20 _asset,
-        address _to,
-        uint256 _amount
-    ) public {
+    function airdrop(ERC20 _asset, address _to, uint256 _amount) public {
         uint256 balanceBefore = _asset.balanceOf(_to);
         deal(address(_asset), _to, balanceBefore + _amount);
     }
 
     function setFees(uint16 _protocolFee, uint16 _performanceFee) public {
-        address gov = IFactory(factory).governance();
+        address _gov = IFactory(factory).governance();
 
         // Need to make sure there is a protocol fee recipient to set the fee.
-        vm.prank(gov);
-        IFactory(factory).set_protocol_fee_recipient(gov);
+        vm.prank(_gov);
+        IFactory(factory).set_protocol_fee_recipient(_gov);
 
-        vm.prank(gov);
+        vm.prank(_gov);
         IFactory(factory).set_protocol_fee_bps(_protocolFee);
 
         vm.prank(management);
@@ -170,4 +171,30 @@ contract Setup is ExtendedTest, IEvents {
         tokenAddrs["DAI"] = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
         tokenAddrs["USDC"] = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     }
+
+    function _toUsd(
+        uint256 _amount,
+        address _token
+    ) internal view returns (uint256) {
+        if (_amount == 0) return 0;
+        unchecked {
+            return
+                (_amount * _getPrice(_token)) /
+                (uint256(10 ** ERC20(_token).decimals()));
+        }
+    }
+
+    function _fromUsd(
+        uint256 _amount,
+        address _token
+    ) internal view returns (uint256) {
+        if (_amount == 0) return 0;
+        unchecked {
+            return
+                (_amount * (uint256(10 ** ERC20(_token).decimals()))) /
+                _getPrice(_token);
+        }
+    }
+
+    function _getPrice(address _asset) internal view returns (uint256 price) {}
 }

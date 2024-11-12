@@ -11,16 +11,14 @@ import {BaseHealthCheck, ERC20} from "@periphery/Bases/HealthCheck/BaseHealthChe
 abstract contract BaseLenderBorrower is BaseHealthCheck {
     using SafeERC20 for ERC20;
 
-    address public immutable GOV;
-
     /// The token we will be borrowing/supplying.
     address public immutable borrowToken;
 
-    /// If set to true, the strategy will not try to repay debt by selling rewards or asset.
-    bool public leaveDebtBehind;
-
     /// @notice Deposit limit for the strategy.
     uint256 public depositLimit;
+
+    /// If set to true, the strategy will not try to repay debt by selling rewards or asset.
+    bool public leaveDebtBehind;
 
     /// @notice Target Loan-To-Value (LTV) multiplier.
     /// @dev Represents the ratio up to which we will borrow, relative to the liquidation threshold.
@@ -32,78 +30,91 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     /// Default is set to 90% of the liquidation LTV
     uint16 public warningLTVMultiplier; // 90% of liquidation LTV
 
-    /// Thresholds: lower limit on how much base token can be borrowed at a time.
-    uint256 internal minThreshold;
+    /// @notice Slippage tolerance (in basis points) for swaps
+    uint64 public slippage;
 
     /// The max the base fee (in gwei) will be for a tend
     uint256 public maxGasPriceToTend;
 
-    /// @notice Slippage tolerance (in basis points) for swaps
-    uint256 public slippage;
-
-    /// @notice Mapping to store the decimals of each token
-    mapping(address => uint256) internal decimals;
+    /// Thresholds: lower limit on how much base token can be borrowed at a time.
+    uint256 internal minThreshold;
 
     /**
      * @param _asset The address of the asset we are lending/borrowing.
      * @param _name The name of the strategy.
      * @param _borrowToken The address of the borrow token.
-     * @param _gov The address of the governance contract.
      */
     constructor(
         address _asset,
         string memory _name,
-        address _borrowToken,
-        address _gov
+        address _borrowToken
     ) BaseHealthCheck(_asset, _name) {
         borrowToken = _borrowToken;
-        GOV = _gov;
 
         // Set default variables
         depositLimit = type(uint256).max;
-        targetLTVMultiplier = 8_000;
-        warningLTVMultiplier = 9_000;
+        targetLTVMultiplier = 7_000;
+        warningLTVMultiplier = 8_000;
         leaveDebtBehind = false;
         maxGasPriceToTend = 200 * 1e9;
         slippage = 500;
-
-        decimals[address(asset)] = asset.decimals();
-        decimals[borrowToken] = ERC20(borrowToken).decimals();
     }
 
     /// ----------------- SETTERS -----------------
 
     /**
-     * @notice Set the parameters for the strategy
-     * @dev Updates multiple strategy parameters to optimize contract bytecode size.
-     * Ensure `_warningLTVMultiplier` is less than 9000 and `_targetLTVMultiplier` is less than `_warningLTVMultiplier`
-     * Can only be called by management
-     * @param _targetLTVMultiplier Desired target loan-to-value multiplier
-     * @param _warningLTVMultiplier Warning threshold for loan-to-value multiplier
-     * @param _leaveDebtBehind Bool to prevent debt repayment
-     * @param _maxGasPriceToTend Maximum gas price for the tend operation
-     * @param _slippage Slippage tolerance for swaps
+     * @notice Set the deposit limit for the strategy
+     * @param _depositLimit New deposit limit
      */
-    function setStrategyParams(
-        uint256 _depositLimit,
+    function setDepositLimit(uint256 _depositLimit) external onlyManagement {
+        depositLimit = _depositLimit;
+    }
+
+    /**
+     * @notice Set the target and warning LTV multipliers
+     * @param _targetLTVMultiplier New target LTV multiplier
+     * @param _warningLTVMultiplier New warning LTV multiplier
+     * @dev Target must be less than warning, warning must be <= 9000, target cannot be 0
+     */
+    function setLtvMultipliers(
         uint16 _targetLTVMultiplier,
-        uint16 _warningLTVMultiplier,
-        bool _leaveDebtBehind,
-        uint256 _maxGasPriceToTend,
-        uint256 _slippage
-    ) external virtual onlyManagement {
+        uint16 _warningLTVMultiplier
+    ) external onlyManagement {
         require(
             _warningLTVMultiplier <= 9_000 &&
                 _targetLTVMultiplier < _warningLTVMultiplier &&
-                _targetLTVMultiplier != 0
+                _targetLTVMultiplier != 0,
+            "invalid LTV"
         );
-        depositLimit = _depositLimit;
         targetLTVMultiplier = _targetLTVMultiplier;
         warningLTVMultiplier = _warningLTVMultiplier;
+    }
+
+    /**
+     * @notice Set whether to leave debt behind
+     * @param _leaveDebtBehind New leave debt behind setting
+     */
+    function setLeaveDebtBehind(bool _leaveDebtBehind) external onlyManagement {
         leaveDebtBehind = _leaveDebtBehind;
+    }
+
+    /**
+     * @notice Set the maximum gas price for tending
+     * @param _maxGasPriceToTend New maximum gas price
+     */
+    function setMaxGasPriceToTend(
+        uint256 _maxGasPriceToTend
+    ) external onlyManagement {
         maxGasPriceToTend = _maxGasPriceToTend;
+    }
+
+    /**
+     * @notice Set the slippage tolerance
+     * @param _slippage New slippage tolerance in basis points
+     */
+    function setSlippage(uint256 _slippage) external onlyManagement {
         require(_slippage < MAX_BPS, "slippage");
-        slippage = _slippage;
+        slippage = uint64(_slippage);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -361,7 +372,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     ) public view virtual override returns (uint256) {
         /// Default liquidity is the balance of collateral + 1 for rounding.
         uint256 liquidity = balanceOfCollateral() + 1;
-        uint256 lenderLiquidity = _lenderLiquidity();
+        uint256 lenderLiquidity = _lenderMaxWithdraw();
 
         /// If we can't withdraw or supply, set liquidity = 0.
         if (_isPaused()) {
@@ -408,7 +419,6 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         /// SUBOPTIMAL(borrow) (e.g. from 0 to 80% liqLTV)
         /// HEALTHY(do nothing) (e.g. from 80% to 90% liqLTV)
         /// UNHEALTHY(repay) (e.g. from 90% to 100% liqLTV)
-
         if (targetLTV > currentLTV) {
             /// SUBOPTIMAL RATIO: our current Loan-to-Value is lower than what we want
 
@@ -433,7 +443,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
                 amountToBorrowBT = 0;
             }
 
-            /// Need to have at least the min set by comet
+            /// Need to have at least the min threshold
             if (balanceOfDebt() + amountToBorrowBT > minThreshold) {
                 _borrow(amountToBorrowBT);
             }
@@ -443,7 +453,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             uint256 targetDebtUsd = (targetLTV * collateralInUsd) / 1e18;
 
             /// Withdraw the difference from the Depositor
-            _withdrawBorrowToken(
+            _withdrawFromLender(
                 _fromUsd(debtInUsd - targetDebtUsd, borrowToken)
             );
 
@@ -468,7 +478,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         uint256 balance = balanceOfAsset();
 
         /// We first repay whatever we need to repay to keep healthy ratios
-        _withdrawBorrowToken(_calculateAmountToRepay(_needed));
+        _withdrawFromLender(_calculateAmountToRepay(_needed));
 
         /// we repay the borrowToken debt with the amount withdrawn from the vault
         _repayTokenDebt();
@@ -501,15 +511,6 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             /// still withdraw with target LTV since management can potentially save any left over manually
             _withdrawCollateral(_maxWithdrawal());
         }
-    }
-
-    /**
-     * @notice Repays outstanding debt with available base tokens
-     * @dev Repays debt by supplying base tokens up to the min of available balance and debt amount
-     */
-    function _repayTokenDebt() internal virtual {
-        /// We cannot pay more than loose balance or more than we owe
-        _repay(Math.min(balanceOfBorrowToken(), balanceOfDebt()));
     }
 
     /**
@@ -549,12 +550,9 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @param amount The withdrawal amount
      * @return The amount of debt to repay
      */
-    function _calculateAmountToRepay(uint256 amount)
-        internal
-        view
-        virtual
-        returns (uint256)
-    {
+    function _calculateAmountToRepay(
+        uint256 amount
+    ) internal view virtual returns (uint256) {
         if (amount == 0) return 0;
         uint256 collateral = balanceOfCollateral();
         /// To unlock all collateral we must repay all the debt
@@ -569,6 +567,34 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         /// Repay only if our target debt is lower than our current debt
         return targetDebt < currentDebt ? currentDebt - targetDebt : 0;
     }
+
+    /**
+     * @notice Repays outstanding debt with available base tokens
+     * @dev Repays debt by supplying base tokens up to the min of available balance and debt amount
+     */
+    function _repayTokenDebt() internal virtual {
+        /// We cannot pay more than loose balance or more than we owe
+        _repay(Math.min(balanceOfBorrowToken(), balanceOfDebt()));
+    }
+
+    /**
+     * @notice Withdraws a specified amount of `borrowToken` from the lender.
+     * @param amount The amount of the borrowToken to withdraw.
+     */
+    function _withdrawFromLender(uint256 amount) internal virtual {
+        uint256 balancePrior = balanceOfBorrowToken();
+        /// Only withdraw what we don't already have free
+        amount = balancePrior >= amount ? 0 : amount - balancePrior;
+
+        /// Make sure we have enough balance.
+        amount = Math.min(amount, _lenderMaxWithdraw());
+
+        if (amount == 0) return;
+
+        _withdrawBorrowToken(amount);
+    }
+
+    // ----------------- INTERNAL WRITE FUNCTIONS ----------------- \\
 
     /**
      * @notice Supplies a specified amount of `asset` as collateral.
@@ -609,15 +635,13 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     // ----------------- INTERNAL VIEW FUNCTIONS ----------------- \\
 
     /**
-     * @notice Gets asset price returned 1e18
+     * @notice Gets asset price returned 1e8
      * @param _asset The asset address
      * @return price asset price
      */
-    function _getPrice(address _asset)
-        internal
-        view
-        virtual
-        returns (uint256 price);
+    function _getPrice(
+        address _asset
+    ) internal view virtual returns (uint256 price);
 
     /**
      * @notice Checks if lending or borrowing is paused
@@ -647,29 +671,25 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @notice Gets the amount of borrowToken that could be withdrawn from the lender
      * @return The lender liquidity
      */
-    function _lenderLiquidity() internal view virtual returns (uint256);
+    function _lenderMaxWithdraw() internal view virtual returns (uint256);
 
     /**
      * @notice Gets net borrow APR from depositor
      * @param newAmount Simulated supply amount
      * @return Net borrow APR
      */
-    function getNetBorrowApr(uint256 newAmount)
-        public
-        view
-        virtual
-        returns (uint256);
+    function getNetBorrowApr(
+        uint256 newAmount
+    ) public view virtual returns (uint256);
 
     /**
      * @notice Gets net reward APR from depositor
      * @param newAmount Simulated supply amount
      * @return Net reward APR
      */
-    function getNetRewardApr(uint256 newAmount)
-        public
-        view
-        virtual
-        returns (uint256);
+    function getNetRewardApr(
+        uint256 newAmount
+    ) public view virtual returns (uint256);
 
     /**
      * @notice Gets liquidation collateral factor for asset
@@ -793,52 +813,52 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
 
     /**
      * @notice Converts a token amount to USD value
-     * @dev Uses Compound price feed and token decimals
+     * @dev This assumes _getPrice returns constants 1e8 price
      * @param _amount The token amount
      * @param _token The token address
      * @return The USD value scaled by 1e8
      */
-    function _toUsd(uint256 _amount, address _token)
-        internal
-        view
-        virtual
-        returns (uint256)
-    {
+    function _toUsd(
+        uint256 _amount,
+        address _token
+    ) internal view virtual returns (uint256) {
         if (_amount == 0) return 0;
         unchecked {
-            return (_amount * _getPrice(_token)) / (uint256(decimals[_token]));
+            return
+                (_amount * _getPrice(_token)) /
+                (10 ** ERC20(_token).decimals());
         }
     }
 
     /**
      * @notice Converts a USD amount to token value
-     * @dev Uses Compound price feed and token decimals
+     * @dev This assumes _getPrice returns constants 1e8 price
      * @param _amount The USD amount (scaled by 1e8)
      * @param _token The token address
      * @return The token amount
      */
-    function _fromUsd(uint256 _amount, address _token)
-        internal
-        view
-        virtual
-        returns (uint256)
-    {
+    function _fromUsd(
+        uint256 _amount,
+        address _token
+    ) internal view virtual returns (uint256) {
         if (_amount == 0) return 0;
         unchecked {
-            return (_amount * (uint256(decimals[_token]))) / _getPrice(_token);
+            return
+                (_amount * (10 ** ERC20(_token).decimals())) /
+                _getPrice(_token);
         }
     }
 
     /// ----------------- HARVEST / TOKEN CONVERSIONS -----------------
 
     /**
-     * @notice Claims reward tokens from Comet and depositor
+     * @notice Claims reward tokens.
      */
-    function _claimRewards(bool _accrue) internal virtual;
+    function _claimRewards() internal virtual;
 
     /**
      * @notice Claims and sells available reward tokens
-     * @dev Handles claiming, selling rewards for base tokens if needed, and selling remaining rewards for asset
+     * @dev Handles claiming, selling rewards for borrow tokens if needed, and selling remaining rewards for asset
      */
     function _claimAndSellRewards() internal virtual;
 
@@ -905,8 +925,9 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      */
     function _emergencyWithdraw(uint256 _amount) internal virtual override {
         if (_amount > 0) {
-            _withdrawBorrowToken(Math.min(_amount, _lenderLiquidity()));
+            _withdrawBorrowToken(Math.min(_amount, _lenderMaxWithdraw()));
         }
+
         // Repay everything we can.
         _repayTokenDebt();
 
@@ -934,10 +955,10 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     }
 
     /// @notice Withdraw a specific amount of `_token`
-    function manualWithdraw(address _token, uint256 _amount)
-        external
-        onlyEmergencyAuthorized
-    {
+    function manualWithdraw(
+        address _token,
+        uint256 _amount
+    ) external onlyEmergencyAuthorized {
         if (_token == borrowToken) {
             _withdrawBorrowToken(_amount);
         } else {
@@ -948,13 +969,5 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     // Manually repay debt with loose borrowToken already in the strategy.
     function manualRepayDebt() external onlyEmergencyAuthorized {
         _repayTokenDebt();
-    }
-
-    /// @notice Sweep of non-asset ERC20 tokens to governance
-    /// @param _token The ERC20 token to sweep
-    function sweep(address _token) external {
-        require(msg.sender == GOV, "!gov");
-        require(_token != address(asset), "!asset");
-        ERC20(_token).safeTransfer(GOV, ERC20(_token).balanceOf(address(this)));
     }
 }

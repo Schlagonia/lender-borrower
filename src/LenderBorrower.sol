@@ -6,12 +6,17 @@ import {BaseLenderBorrower, ERC20, SafeERC20, Math} from "./BaseLenderBorrower.s
 abstract contract LenderBorrower is BaseLenderBorrower {
     using SafeERC20 for ERC20;
 
+    /// @notice The governance address
+    address public immutable GOV;
+
     constructor(
         address _asset,
         string memory _name,
         address _borrowToken,
         address _gov
-    ) BaseLenderBorrower(_asset, _name, _borrowToken, _gov) {}
+    ) BaseLenderBorrower(_asset, _name, _borrowToken) {
+        GOV = _gov;
+    }
 
     // ----------------- WRITE FUNCTIONS ----------------- \\
 
@@ -58,12 +63,9 @@ abstract contract LenderBorrower is BaseLenderBorrower {
      * @param _asset The asset address
      * @return price asset price
      */
-    function _getPrice(address _asset)
-        internal
-        view
-        virtual
-        override
-        returns (uint256 price);
+    function _getPrice(
+        address _asset
+    ) internal view virtual override returns (uint256 price);
 
     /**
      * @notice Checks if lending or borrowing is paused
@@ -103,7 +105,7 @@ abstract contract LenderBorrower is BaseLenderBorrower {
      * @notice Gets the amount of borrowToken that could be withdrawn from the lender
      * @return The lender liquidity
      */
-    function _lenderLiquidity()
+    function _lenderMaxWithdraw()
         internal
         view
         virtual
@@ -115,24 +117,18 @@ abstract contract LenderBorrower is BaseLenderBorrower {
      * @param newAmount Simulated supply amount
      * @return Net borrow APR
      */
-    function getNetBorrowApr(uint256 newAmount)
-        public
-        view
-        virtual
-        override
-        returns (uint256);
+    function getNetBorrowApr(
+        uint256 newAmount
+    ) public view virtual override returns (uint256);
 
     /**
      * @notice Gets net reward APR from depositor
      * @param newAmount Simulated supply amount
      * @return Net reward APR
      */
-    function getNetRewardApr(uint256 newAmount)
-        public
-        view
-        virtual
-        override
-        returns (uint256);
+    function getNetRewardApr(
+        uint256 newAmount
+    ) public view virtual override returns (uint256);
 
     /**
      * @notice Gets liquidation collateral factor for asset
@@ -176,9 +172,9 @@ abstract contract LenderBorrower is BaseLenderBorrower {
     /// ----------------- HARVEST / TOKEN CONVERSIONS ----------------- \\
 
     /**
-     * @notice Claims reward tokens from Comet and depositor
+     * @notice Claims reward tokens
      */
-    function _claimRewards(bool _accrue) internal virtual override;
+    function _claimRewards() internal virtual override;
 
     /**
      * @notice Claims and sells available reward tokens
@@ -198,4 +194,12 @@ abstract contract LenderBorrower is BaseLenderBorrower {
      * @dev Will swap from the base token => underlying asset.
      */
     function _sellBorrowToken(uint256 _amount) internal virtual override;
+
+    /// @notice Sweep of non-asset ERC20 tokens to governance
+    /// @param _token The ERC20 token to sweep
+    function sweep(address _token) external {
+        require(msg.sender == GOV, "!gov");
+        require(_token != address(asset), "!asset");
+        ERC20(_token).safeTransfer(GOV, ERC20(_token).balanceOf(address(this)));
+    }
 }
