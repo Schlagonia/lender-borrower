@@ -211,6 +211,6 @@ contract Setup is ExtendedTest, IEvents {
     function _getCompoundPrice(
         address _asset
     ) internal view returns (uint256 price) {
-        price = Comet(comet).getPrice(strategy.priceFeeds(_asset));
+        price = Comet(comet).getPrice(strategy.tokenInfo(_asset).priceFeed);
     }
 }

@@ -12,11 +12,16 @@ interface IStrategyInterface is
     IBaseHealthCheck,
     IUniswapV3Swapper
 {
+    struct TokenInfo {
+        address priceFeed;
+        uint96 decimals;
+    }
+
     function GOV() external view returns (address);
 
     function comet() external view returns (address);
 
-    function priceFeeds(address _token) external view returns (address);
+    function tokenInfo(address _token) external view returns (TokenInfo memory);
 
     function setPriceFeed(address _token, address _priceFeed) external;
 

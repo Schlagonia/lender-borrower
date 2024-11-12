@@ -10,6 +10,11 @@ import {CometRewards} from "./interfaces/Compound/V3/CompoundV3.sol";
 abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
     using SafeERC20 for ERC20;
 
+    struct TokenInfo {
+        address priceFeed;
+        uint96 decimals;
+    }
+
     // The address of the main V3 pool.
     Comet public immutable comet;
 
@@ -27,7 +32,8 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
     /// The reward Token (COMP).
     address public immutable rewardToken;
 
-    mapping(address => address) public priceFeeds;
+    /// Mapping from token => struct containing its reused info
+    mapping(address => TokenInfo) public tokenInfo;
 
     constructor(
         address _asset,
@@ -57,15 +63,20 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
         /// For depositor to pull funds to deposit
         ERC20(borrowToken).safeApprove(_depositor, type(uint256).max);
 
-        priceFeeds[borrowToken] = comet.baseTokenPriceFeed();
+        tokenInfo[_borrowToken] = TokenInfo({
+            priceFeed: comet.baseTokenPriceFeed(),
+            decimals: uint96(10 ** ERC20(_borrowToken).decimals())
+        });
 
-        priceFeeds[address(asset)] = comet
-            .getAssetInfoByAddress(address(asset))
-            .priceFeed;
+        tokenInfo[address(asset)] = TokenInfo({
+            priceFeed: comet.getAssetInfoByAddress(address(asset)).priceFeed,
+            decimals: uint96(10 ** ERC20(address(asset)).decimals())
+        });
 
-        priceFeeds[rewardToken] = 0xdbd020CAeF83eFd542f4De03e3cF0C28A4428bd5;
-
-        decimals[rewardToken] = 10 ** ERC20(rewardToken).decimals();
+        tokenInfo[rewardToken] = TokenInfo({
+            priceFeed: 0xdbd020CAeF83eFd542f4De03e3cF0C28A4428bd5,
+            decimals: uint96(10 ** ERC20(rewardToken).decimals())
+        });
     }
 
     /**
@@ -81,7 +92,7 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
     ) external onlyManagement {
         // just check it doesn't revert
         comet.getPrice(_priceFeed);
-        priceFeeds[_token] = _priceFeed;
+        tokenInfo[_token].priceFeed = _priceFeed;
     }
 
     // ----------------- WRITE FUNCTIONS ----------------- \\
@@ -136,6 +147,44 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
     // ----------------- INTERNAL VIEW FUNCTIONS ----------------- \\
 
     /**
+     * @notice Converts a token amount to USD value
+     * @dev Uses Compound price feed and token decimals
+     * @param _amount The token amount
+     * @param _token The token address
+     * @return The USD value scaled by 1e8
+     */
+    function _toUsd(
+        uint256 _amount,
+        address _token
+    ) internal view override virtual returns (uint256) {
+        if (_amount == 0) return 0;
+        unchecked {
+            return
+                (_amount * _getPrice(_token)) /
+                (uint256(tokenInfo[_token].decimals));
+        }
+    }
+
+    /**
+     * @notice Converts a USD amount to token value
+     * @dev Uses Compound price feed and token decimals
+     * @param _amount The USD amount (scaled by 1e8)
+     * @param _token The token address
+     * @return The token amount
+     */
+    function _fromUsd(
+        uint256 _amount,
+        address _token
+    ) internal view override virtual returns (uint256) {
+        if (_amount == 0) return 0;
+        unchecked {
+            return
+                (_amount * (uint256(tokenInfo[_token].decimals))) /
+                _getPrice(_token);
+        }
+    }
+
+    /**
      * @notice Gets asset price returned 1e18
      * @param _asset The asset address
      * @return price asset price
@@ -156,7 +205,7 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
     function _getPriceFeedAddress(
         address _asset
     ) internal view returns (address priceFeed) {
-        priceFeed = priceFeeds[_asset];
+        priceFeed = tokenInfo[_asset].priceFeed;
         if (priceFeed == address(0)) {
             priceFeed = comet.getAssetInfoByAddress(_asset).priceFeed;
         }

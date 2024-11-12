@@ -14,11 +14,11 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     /// The token we will be borrowing/supplying.
     address public immutable borrowToken;
 
-    /// If set to true, the strategy will not try to repay debt by selling rewards or asset.
-    bool public leaveDebtBehind;
-
     /// @notice Deposit limit for the strategy.
     uint256 public depositLimit;
+
+    /// If set to true, the strategy will not try to repay debt by selling rewards or asset.
+    bool public leaveDebtBehind;
 
     /// @notice Target Loan-To-Value (LTV) multiplier.
     /// @dev Represents the ratio up to which we will borrow, relative to the liquidation threshold.
@@ -30,17 +30,14 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     /// Default is set to 90% of the liquidation LTV
     uint16 public warningLTVMultiplier; // 90% of liquidation LTV
 
-    /// Thresholds: lower limit on how much base token can be borrowed at a time.
-    uint256 internal minThreshold;
+    /// @notice Slippage tolerance (in basis points) for swaps
+    uint64 public slippage;
 
     /// The max the base fee (in gwei) will be for a tend
     uint256 public maxGasPriceToTend;
 
-    /// @notice Slippage tolerance (in basis points) for swaps
-    uint256 public slippage;
-
-    /// @notice Mapping to store the decimals of each token
-    mapping(address => uint256) internal decimals;
+    /// Thresholds: lower limit on how much base token can be borrowed at a time.
+    uint256 internal minThreshold;
 
     /**
      * @param _asset The address of the asset we are lending/borrowing.
@@ -61,9 +58,6 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         leaveDebtBehind = false;
         maxGasPriceToTend = 200 * 1e9;
         slippage = 500;
-
-        decimals[address(asset)] = 10 ** asset.decimals();
-        decimals[borrowToken] = 10 ** ERC20(borrowToken).decimals();
     }
 
     /// ----------------- SETTERS -----------------
@@ -120,7 +114,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      */
     function setSlippage(uint256 _slippage) external onlyManagement {
         require(_slippage < MAX_BPS, "slippage");
-        slippage = _slippage;
+        slippage = uint64(_slippage);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -830,7 +824,9 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     ) internal view virtual returns (uint256) {
         if (_amount == 0) return 0;
         unchecked {
-            return (_amount * _getPrice(_token)) / (uint256(decimals[_token]));
+            return
+                (_amount * _getPrice(_token)) /
+                (10 ** ERC20(_token).decimals());
         }
     }
 
@@ -847,7 +843,9 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     ) internal view virtual returns (uint256) {
         if (_amount == 0) return 0;
         unchecked {
-            return (_amount * (uint256(decimals[_token]))) / _getPrice(_token);
+            return
+                (_amount * (10 ** ERC20(_token).decimals())) /
+                _getPrice(_token);
         }
     }
 

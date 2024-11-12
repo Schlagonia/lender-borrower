@@ -45,7 +45,6 @@ contract StrategyFactory {
         keeper = _keeper;
         emergencyAdmin = _emergencyAdmin;
 
-        /// Deploy an original depositor to clone
         originalDepositor = address(new Depositor());
     }
 
