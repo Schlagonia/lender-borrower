@@ -2,7 +2,7 @@
 pragma solidity ^0.8.18;
 
 import {Depositor, Comet, ERC20} from "./Depositor.sol";
-import {CompoundV3LenderBorrowerUniswap} from "./CompoundV3LenderBorrowerUniswap.sol";
+import {CompoundV3LenderBorrowerAero} from "./CompoundV3LenderBorrowerAero.sol";
 import {IStrategyInterface} from "./interfaces/IStrategyInterface.sol";
 
 interface IOracle {
@@ -53,14 +53,12 @@ contract StrategyFactory {
      * @param _asset The underlying asset for the strategy to use.
      * @param _name The name of the strategy.
      * @param _comet The comet address for the strategy to use.
-     * @param _ethToAssetFee The fee for the strategy to use.
      * @return . The address of the new strategy.
      */
     function newStrategy(
         address _asset,
         string calldata _name,
-        address _comet,
-        uint24 _ethToAssetFee
+        address _comet
     ) external virtual returns (address) {
         require(
             deployedStrategy[_asset][_comet] == address(0),
@@ -73,15 +71,14 @@ contract StrategyFactory {
         // tokenized strategies available setters.
         IStrategyInterface _newStrategy = IStrategyInterface(
             address(
-                new CompoundV3LenderBorrowerUniswap(
+                new CompoundV3LenderBorrowerAero(
                     _asset,
                     _name,
                     borrowToken,
                     gov,
                     weth,
                     _comet,
-                    depositor,
-                    _ethToAssetFee
+                    depositor
                 )
             )
         );
@@ -96,6 +93,8 @@ contract StrategyFactory {
         _newStrategy.setPendingManagement(management);
 
         _newStrategy.setEmergencyAdmin(emergencyAdmin);
+
+        _newStrategy.setProfitMaxUnlockTime(2 days);
 
         IOracle(APR_ORACLE).setOracle(address(_newStrategy), oracle);
 

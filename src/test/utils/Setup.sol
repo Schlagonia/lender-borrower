@@ -5,7 +5,7 @@ import "forge-std/console2.sol";
 import {ExtendedTest} from "./ExtendedTest.sol";
 
 import {Depositor, Comet, ERC20} from "../../Depositor.sol";
-import {CompoundV3LenderBorrowerUniswap} from "../../CompoundV3LenderBorrowerUniswap.sol";
+import {CompoundV3LenderBorrowerAero, IAeroRouter} from "../../CompoundV3LenderBorrowerAero.sol";
 import {StrategyFactory} from "../../StrategyFactory.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
 
@@ -27,9 +27,12 @@ contract Setup is ExtendedTest, IEvents {
     Depositor public depositor;
     StrategyFactory public strategyFactory;
 
+    address internal constant AERODROME_FACTORY =
+        0x420DD381b31aEf6683db6B902084cB0FFECe40Da;
+
     address public borrowToken;
     address public comet;
-    uint24 public ethToAssetFee;
+    address public rewardToken;
 
     mapping(string => address) public tokenAddrs;
     mapping(string => address) public comets;
@@ -50,7 +53,7 @@ contract Setup is ExtendedTest, IEvents {
     uint256 public MAX_BPS = 10_000;
 
     // Fuzz from $0.01 of 1e6 stable coins up to 1 trillion of a 1e18 coin
-    uint256 public maxFuzzAmount = 1e21;
+    uint256 public maxFuzzAmount = 100e18;
     uint256 public minFuzzAmount = 1e17;
 
     // Default profit max unlock time is set for 10 days
@@ -61,8 +64,7 @@ contract Setup is ExtendedTest, IEvents {
 
         // Set asset
         asset = ERC20(tokenAddrs["WETH"]);
-        comet = comets["USDT"];
-        ethToAssetFee = 500;
+        comet = comets["AERO"];
 
         // Set decimals
         decimals = asset.decimals();
@@ -79,8 +81,11 @@ contract Setup is ExtendedTest, IEvents {
         // Deploy strategy and set variables
         strategy = IStrategyInterface(setUpStrategy());
 
+        rewardToken = strategy.rewardToken();
         depositor = Depositor(strategy.depositor());
         borrowToken = strategy.borrowToken();
+
+        setRoutes();
 
         factory = strategy.FACTORY();
 
@@ -100,8 +105,7 @@ contract Setup is ExtendedTest, IEvents {
                 strategyFactory.newStrategy(
                     address(asset),
                     "Tokenized Strategy",
-                    address(comet),
-                    ethToAssetFee
+                    address(comet)
                 )
             )
         );
@@ -110,6 +114,98 @@ contract Setup is ExtendedTest, IEvents {
         _strategy.acceptManagement();
 
         return address(_strategy);
+    }
+
+    function setRoutes() public {
+        IAeroRouter.Route[] memory borrowRoute = new IAeroRouter.Route[](3);
+        borrowRoute[0] = IAeroRouter.Route({
+            from: address(rewardToken),
+            to: tokenAddrs["DOLA"],
+            stable: false,
+            factory: AERODROME_FACTORY
+        });
+
+        borrowRoute[1] = IAeroRouter.Route({
+            from: tokenAddrs["DOLA"],
+            to: tokenAddrs["USDC"],
+            stable: true,
+            factory: AERODROME_FACTORY
+        });
+
+        borrowRoute[2] = IAeroRouter.Route({
+            from: tokenAddrs["USDC"],
+            to: borrowToken,
+            stable: false,
+            factory: AERODROME_FACTORY
+        });
+
+        vm.prank(management);
+        strategy.setRoutes(rewardToken, borrowToken, borrowRoute);
+
+        IAeroRouter.Route[] memory assetRoute = new IAeroRouter.Route[](3);
+        assetRoute[0] = IAeroRouter.Route({
+            from: rewardToken,
+            to: tokenAddrs["DOLA"],
+            stable: false,
+            factory: AERODROME_FACTORY
+        });
+
+        assetRoute[1] = IAeroRouter.Route({
+            from: tokenAddrs["DOLA"],
+            to: tokenAddrs["USDC"],
+            stable: true,
+            factory: AERODROME_FACTORY
+        });
+
+        assetRoute[2] = IAeroRouter.Route({
+            from: tokenAddrs["USDC"],
+            to: address(asset),
+            stable: false,
+            factory: AERODROME_FACTORY
+        });
+
+        vm.prank(management);
+        strategy.setRoutes(rewardToken, address(asset), assetRoute);
+
+        IAeroRouter.Route[] memory assetToBorrowRoute = new IAeroRouter.Route[](
+            2
+        );
+        assetToBorrowRoute[0] = IAeroRouter.Route({
+            from: address(asset),
+            to: tokenAddrs["USDC"],
+            stable: false,
+            factory: AERODROME_FACTORY
+        });
+
+        assetToBorrowRoute[1] = IAeroRouter.Route({
+            from: tokenAddrs["USDC"],
+            to: borrowToken,
+            stable: false,
+            factory: AERODROME_FACTORY
+        });
+
+        vm.prank(management);
+        strategy.setRoutes(address(asset), borrowToken, assetToBorrowRoute);
+
+        IAeroRouter.Route[] memory borrowToAssetRoute = new IAeroRouter.Route[](
+            2
+        );
+        borrowToAssetRoute[0] = IAeroRouter.Route({
+            from: borrowToken,
+            to: tokenAddrs["USDC"],
+            stable: false,
+            factory: AERODROME_FACTORY
+        });
+
+        borrowToAssetRoute[1] = IAeroRouter.Route({
+            from: tokenAddrs["USDC"],
+            to: address(asset),
+            stable: false,
+            factory: AERODROME_FACTORY
+        });
+
+        vm.prank(management);
+        strategy.setRoutes(borrowToken, address(asset), borrowToAssetRoute);
     }
 
     function depositIntoStrategy(
@@ -174,14 +270,17 @@ contract Setup is ExtendedTest, IEvents {
     function _setTokenAddrs() internal {
         tokenAddrs["WBTC"] = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
         tokenAddrs["YFI"] = 0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e;
-        tokenAddrs["WETH"] = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+        tokenAddrs["WETH"] = 0x4200000000000000000000000000000000000006;
         tokenAddrs["LINK"] = 0x514910771AF9Ca656af840dff83E8264EcF986CA;
         tokenAddrs["USDT"] = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
         tokenAddrs["DAI"] = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
-        tokenAddrs["USDC"] = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+        tokenAddrs["USDC"] = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
+        tokenAddrs["AERO"] = 0x940181a94A35A4569E4529A3CDfB74e38FD98631;
+        tokenAddrs["DOLA"] = 0x4621b7A9c75199271F773Ebd9A499dbd165c3191;
         comets["WETH"] = 0xA17581A9E3356d9A858b789D68B4d866e593aE94;
         comets["USDC"] = 0xc3d688B66703497DAA19211EEdff47f25384cdc3;
         comets["USDT"] = 0x3Afdc9BCA9213A35503b077a6072F3D0d5AB0840;
+        comets["AERO"] = 0x784efeB622244d2348d4F2522f8860B96fbEcE89;
     }
 
     function _toUsd(

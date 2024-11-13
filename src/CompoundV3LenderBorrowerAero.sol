@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.18;
 
-import {CompoundV3LenderBorrower, ERC20, SafeERC20} from "./CompoundV3LenderBorrower.sol";
+import {IAeroRouter} from "./interfaces/Aero/IAeroRouter.sol";
+import {CompoundV3LenderBorrower, ERC20, SafeERC20, Math} from "./CompoundV3LenderBorrower.sol";
 
-/// Uniswap V3 Swapper
-import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
-
-contract CompoundV3LenderBorrowerUniswap is
-    CompoundV3LenderBorrower,
-    UniswapV3Swapper
-{
+contract CompoundV3LenderBorrowerAero is CompoundV3LenderBorrower {
     using SafeERC20 for ERC20;
+
+    IAeroRouter internal constant AERODROME_ROUTER =
+        IAeroRouter(0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43);
+
+    uint256 public minAmountToSell;
+
+    mapping(address => mapping(address => IAeroRouter.Route[])) public routes;
 
     constructor(
         address _asset,
@@ -19,8 +21,7 @@ contract CompoundV3LenderBorrowerUniswap is
         address _gov,
         address _weth,
         address _comet,
-        address _depositor,
-        uint24 _ethToAssetFee
+        address _depositor
     )
         CompoundV3LenderBorrower(
             _asset,
@@ -32,17 +33,12 @@ contract CompoundV3LenderBorrowerUniswap is
             _depositor
         )
     {
-        /// To sell reward tokens
-        ERC20(rewardToken).safeApprove(address(router), type(uint256).max);
-
-        /// Set the needed variables for the Uni Swapper
-        /// Base will be weth
-        base = WETH;
-        /// Set the min amount for the swapper to sell
         minAmountToSell = 1e10;
-
-        /// Default to .3% pool for comp/eth and to .05% pool for eth/borrowToken
-        _setFees(3000, 500, _ethToAssetFee);
+        /// To sell reward tokens
+        ERC20(rewardToken).safeApprove(
+            address(AERODROME_ROUTER),
+            type(uint256).max
+        );
     }
 
     function setMinAmountToSell(
@@ -51,45 +47,16 @@ contract CompoundV3LenderBorrowerUniswap is
         minAmountToSell = _minAmountToSell;
     }
 
-    /**
-     * @notice Set the fees for different token swaps
-     * @dev Configures fees for token swaps and can only be called by management
-     * @param _rewardToEthFee Fee for swapping reward tokens to ETH
-     * @param _ethToBorrowTokenFee Fee for swapping ETH to borrowToken
-     * @param _ethToAssetFee Fee for swapping ETH to asset token
-     */
-    function setFees(
-        uint24 _rewardToEthFee,
-        uint24 _ethToBorrowTokenFee,
-        uint24 _ethToAssetFee
+    function setRoutes(
+        address _token0,
+        address _token1,
+        IAeroRouter.Route[] calldata _routes
     ) external onlyManagement {
-        _setFees(_rewardToEthFee, _ethToBorrowTokenFee, _ethToAssetFee);
-    }
+        delete routes[_token0][_token1];
 
-    /**
-     * @notice Internal function to set the fees for token swaps involving `weth`
-     * @dev Sets the swap fees for rewardToken to WETH, borrowToken to WETH, and asset to WETH
-     * @param _rewardToEthFee Fee for swapping reward tokens to WETH
-     * @param _ethToBorrowTokenFee Fee for swapping ETH to borrowToken
-     * @param _ethToAssetFee Fee for swapping ETH to asset token
-     */
-    function _setFees(
-        uint24 _rewardToEthFee,
-        uint24 _ethToBorrowTokenFee,
-        uint24 _ethToAssetFee
-    ) internal {
-        address _weth = base;
-        _setUniFees(rewardToken, _weth, _rewardToEthFee);
-        _setUniFees(borrowToken, _weth, _ethToBorrowTokenFee);
-        _setUniFees(address(asset), _weth, _ethToAssetFee);
-    }
-
-    /**
-     * @notice Swap the base token between `asset` and `weth`
-     * @dev This can be used for management to change which pool to trade reward tokens.
-     */
-    function swapBase() external onlyManagement {
-        base = base == address(asset) ? WETH : address(asset);
+        for (uint256 i = 0; i < _routes.length; i++) {
+            routes[_token0][_token1].push(_routes[i]);
+        }
     }
 
     /**
@@ -111,23 +78,16 @@ contract CompoundV3LenderBorrowerUniswap is
                 _toUsd(borrowTokenNeeded, borrowToken),
                 rewardToken
             ) * (MAX_BPS + slippage)) / MAX_BPS;
-            if (maxRewardToken < rewardTokenBalance) {
-                /// If we have enough swap an exact amount out
-                _swapTo(
-                    rewardToken,
-                    borrowToken,
-                    borrowTokenNeeded,
-                    maxRewardToken
-                );
-            } else {
-                /// if not swap everything we have
-                _swapFrom(
-                    rewardToken,
-                    borrowToken,
-                    rewardTokenBalance,
-                    _getAmountOut(rewardTokenBalance, rewardToken, borrowToken)
-                );
-            }
+
+            // Swap the least amount needed.
+            rewardTokenBalance = Math.min(rewardTokenBalance, maxRewardToken);
+
+            _swapFrom(
+                rewardToken,
+                borrowToken,
+                rewardTokenBalance,
+                _getAmountOut(rewardTokenBalance, rewardToken, borrowToken)
+            );
         }
 
         rewardTokenBalance = ERC20(rewardToken).balanceOf(address(this));
@@ -161,11 +121,11 @@ contract CompoundV3LenderBorrowerUniswap is
             /// Under 10 can cause rounding errors from token conversions, no need to swap that small amount
             if (maxAssetBalance <= 10) return;
 
-            _swapTo(
+            _swapFrom(
                 address(asset),
                 borrowToken,
-                borrowTokenStillOwed,
-                maxAssetBalance
+                maxAssetBalance,
+                borrowTokenStillOwed
             );
         }
     }
@@ -180,5 +140,35 @@ contract CompoundV3LenderBorrowerUniswap is
             _amount,
             _getAmountOut(_amount, borrowToken, address(asset))
         );
+    }
+
+    function _swapFrom(
+        address _from,
+        address _to,
+        uint256 _amountIn,
+        uint256 _minAmountOut
+    ) internal virtual {
+        if (_amountIn > minAmountToSell) {
+            _checkAllowance(address(AERODROME_ROUTER), _from, _amountIn);
+
+            AERODROME_ROUTER.swapExactTokensForTokens(
+                _amountIn,
+                _minAmountOut,
+                routes[_from][_to],
+                address(this),
+                block.timestamp
+            );
+        }
+    }
+
+    function _checkAllowance(
+        address _contract,
+        address _token,
+        uint256 _amount
+    ) internal virtual {
+        if (ERC20(_token).allowance(address(this), _contract) < _amount) {
+            ERC20(_token).safeApprove(_contract, 0);
+            ERC20(_token).safeApprove(_contract, _amount);
+        }
     }
 }

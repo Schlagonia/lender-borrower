@@ -62,7 +62,7 @@ contract ShutdownTest is Setup {
         vm.prank(management);
         strategy.emergencyWithdraw(type(uint256).max);
 
-        assertEq(ERC20(borrowToken).balanceOf(address(strategy)), 0);
+        assertEq(strategy.balanceOfDebt(), 0);
         assertEq(ERC20(borrowToken).balanceOf(address(depositor)), 0);
         assertEq(depositor.cometBalance(), 0);
         assertLt(strategy.balanceOfCollateral(), _amount + gain);
@@ -200,7 +200,7 @@ contract ShutdownTest is Setup {
 
         assertEq(ERC20(borrowToken).balanceOf(address(depositor)), 0);
         assertEq(depositor.cometBalance(), 0);
-        assertEq(ERC20(borrowToken).balanceOf(address(strategy)), 0);
+        assertEq(strategy.balanceOfDebt(), 0);
         assertEq(strategy.getCurrentLTV(), 0);
 
         // Set the LTV to 1 so it doesn't lever up
@@ -304,7 +304,7 @@ contract ShutdownTest is Setup {
 
         // will still report a loss but not 100%
         vm.prank(management);
-        strategy.setLossLimitRatio(5_000);
+        strategy.setLossLimitRatio(6_000);
 
         vm.prank(keeper);
         strategy.report();

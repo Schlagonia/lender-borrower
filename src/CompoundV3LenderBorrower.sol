@@ -20,7 +20,7 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
 
     /// The contract to get Comp rewards from.
     CometRewards public constant rewardsContract =
-        CometRewards(0x1B0e765F6224C21223AeA2af16c1C46E38885a40);
+        CometRewards(0x123964802e6ABabBE1Bc9547D72Ef1B69B00A6b1);
 
     address public immutable GOV;
 
@@ -74,7 +74,7 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
         });
 
         tokenInfo[rewardToken] = TokenInfo({
-            priceFeed: 0xdbd020CAeF83eFd542f4De03e3cF0C28A4428bd5,
+            priceFeed: 0x9DDa783DE64A9d1A60c49ca761EbE528C35BA428,
             decimals: uint96(10 ** ERC20(rewardToken).decimals())
         });
     }
@@ -156,7 +156,7 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
     function _toUsd(
         uint256 _amount,
         address _token
-    ) internal view override virtual returns (uint256) {
+    ) internal view virtual override returns (uint256) {
         if (_amount == 0) return 0;
         unchecked {
             return
@@ -175,7 +175,7 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
     function _fromUsd(
         uint256 _amount,
         address _token
-    ) internal view override virtual returns (uint256) {
+    ) internal view virtual override returns (uint256) {
         if (_amount == 0) return 0;
         unchecked {
             return

@@ -471,7 +471,7 @@ contract OperationTest is Setup {
         vm.startPrank(address(strategy));
         Comet(comet).withdraw(
             address(borrowToken),
-            toBorrow - strategy.balanceOfDebt() + 100000
+            toBorrow - strategy.balanceOfDebt() + 1e18
         );
         vm.stopPrank();
 

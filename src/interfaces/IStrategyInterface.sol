@@ -1,17 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.18;
 
+import {IAeroRouter} from "./Aero/IAeroRouter.sol";
 import {IBaseHealthCheck} from "@periphery/Bases/HealthCheck/IBaseHealthCheck.sol";
-import {IUniswapV3Swapper} from "@periphery/swappers/interfaces/IUniswapV3Swapper.sol";
 import {IStrategy} from "@tokenized-strategy/interfaces/IStrategy.sol";
 import {ILenderBorrower} from "./ILenderBorrower.sol";
 
-interface IStrategyInterface is
-    IStrategy,
-    ILenderBorrower,
-    IBaseHealthCheck,
-    IUniswapV3Swapper
-{
+interface IStrategyInterface is IStrategy, ILenderBorrower, IBaseHealthCheck {
     struct TokenInfo {
         address priceFeed;
         uint96 decimals;
@@ -34,4 +29,17 @@ interface IStrategyInterface is
     function sweep(address _token) external;
 
     function setMinAmountToSell(uint256 _minAmountToSell) external;
+
+    function minAmountToSell() external view returns (uint256);
+
+    function setRoutes(
+        address _token0,
+        address _token1,
+        IAeroRouter.Route[] memory _routes
+    ) external;
+
+    function routes(
+        address _token0,
+        address _token1
+    ) external view returns (IAeroRouter.Route[] memory);
 }

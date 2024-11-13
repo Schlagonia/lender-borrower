@@ -44,7 +44,7 @@ contract Depositor is Clonable {
     ERC20 public borrowToken;
     /// The contract to get rewards from
     CometRewards public constant rewardsContract =
-        CometRewards(0x1B0e765F6224C21223AeA2af16c1C46E38885a40);
+        CometRewards(0x123964802e6ABabBE1Bc9547D72Ef1B69B00A6b1);
     /// The specific strategy that uses this depositor
     IStrategyInterface public strategy;
 
@@ -116,7 +116,7 @@ contract Depositor is Clonable {
         /// Default to the base token feed given
         borrowTokenPriceFeed = comet.baseTokenPriceFeed();
         /// Default to the COMP/USD feed
-        rewardTokenPriceFeed = 0xdbd020CAeF83eFd542f4De03e3cF0C28A4428bd5;
+        rewardTokenPriceFeed = 0x9DDa783DE64A9d1A60c49ca761EbE528C35BA428;
 
         // Default buffer t0 1%
         buffer = 100;
