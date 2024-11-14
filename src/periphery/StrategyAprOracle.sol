@@ -1,10 +1,10 @@
-// SPDX-License-Identifier: AGPL-3.0
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.18;
 
-import {AprOracleBase} from "@periphery/AprOracle/AprOracleBase.sol";
+import {IStrategyInterface} from "../interfaces/IStrategyInterface.sol";
+import {Depositor, Comet} from "../Depositor.sol";
 
-contract StrategyAprOracle is AprOracleBase {
-    constructor() AprOracleBase("Strategy Apr Oracle Example", msg.sender) {}
+contract StrategyAprOracle {
 
     /**
      * @notice Will return the expected Apr of a strategy post a debt change.
@@ -22,15 +22,28 @@ contract StrategyAprOracle is AprOracleBase {
      * efficiency should be taken into account.
      *
      * @param _strategy The token to get the apr for.
-     * @param _delta The difference in debt.
+     * @param . The difference in debt.
      * @return . The expected apr for the strategy represented as 1e18.
      */
     function aprAfterDebtChange(
         address _strategy,
-        int256 _delta
-    ) external view override returns (uint256) {
-        // TODO: Implement any necessary logic to return the most accurate
-        //      APR estimation for the strategy.
-        return 1e17;
+        int256 /*_delta*/
+    ) external view returns (uint256) {
+        Depositor depositor = Depositor(
+            IStrategyInterface(_strategy).depositor()
+        );
+
+        Comet comet = Comet(IStrategyInterface(_strategy).comet());
+
+        uint256 newUtilization = (comet.totalBorrow() * 1e18) /
+            comet.totalSupply();
+
+        uint256 borrowApr = depositor.getBorrowApr(newUtilization);
+        uint256 supplyApr = depositor.getSupplyApr(newUtilization);
+        uint256 netRewardApr = depositor.getNetRewardApr(0);
+
+        uint256 netApr = netRewardApr + supplyApr - borrowApr;
+
+        return (netApr * IStrategyInterface(_strategy).getCurrentLTV()) / 1e18;
     }
 }
