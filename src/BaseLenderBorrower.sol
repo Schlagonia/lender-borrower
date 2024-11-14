@@ -343,10 +343,14 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             ? depositLimit - currentAssets
             : 0;
 
-        uint256 supplyCap = _collateralSupplyCap();
+        uint256 maxDeposit = Math.min(_maxCollateralDeposit(), limit);
+        uint256 maxBorrow = Math.min(_lenderMaxDeposit(), _maxBorrowAmount());
 
-        // Return whatever one is lower.
-        return limit > supplyCap ? supplyCap : limit;
+        // Either the max supply or the max we could borrow / targetLTV.
+        return Math.min(
+            maxDeposit, 
+            _fromUsd(_toUsd(maxBorrow, borrowToken) * 1e18 / _getTargetLTV(), address(asset))
+        );
     }
 
     /**
@@ -659,7 +663,13 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @notice Gets the supply cap for the collateral asset if any
      * @return The supply cap
      */
-    function _collateralSupplyCap() internal view virtual returns (uint256);
+    function _maxCollateralDeposit() internal view virtual returns (uint256);
+
+    /**
+     * @notice Gets the max amount of `borrowToken` that could be borrowed
+     * @return The max borrow amount
+     */
+    function _maxBorrowAmount() internal view virtual returns (uint256);
 
     /**
      * @notice Gets the max amount of `borrowToken` that could be deposited to the lender
