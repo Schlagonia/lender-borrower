@@ -150,7 +150,7 @@ interface CTokenI {
 
     function exchangeRateCurrent() external returns (uint256);
 
-    function accrualBlockNumber() external view returns (uint256);
+    function accrualBlockTimestamp() external view returns (uint256);
 
     function exchangeRateStored() external view returns (uint256);
 

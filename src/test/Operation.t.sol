@@ -29,7 +29,7 @@ contract OperationTest is Setup {
 
         checkStrategyTotals(strategy, _amount, _amount, 0);
         assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
-        assertEq(strategy.balanceOfCollateral(), _amount, "collateral");
+        assertApproxEq(strategy.balanceOfCollateral(), _amount, 3);
         assertApproxEq(
             strategy.balanceOfDebt(),
             strategy.balanceOfLentAssets(),
@@ -115,6 +115,10 @@ contract OperationTest is Setup {
         // Earn Interest
         skip(1 days);
 
+        uint256 lenderProfit = strategy.balanceOfLentAssets() / 100;
+        airdrop(ERC20(borrowToken), address(lenderVault), lenderProfit);
+        lenderVault.report();
+
         // Report profit
         vm.prank(keeper);
         (uint256 profit, uint256 loss) = strategy.report();
@@ -158,6 +162,10 @@ contract OperationTest is Setup {
 
         // Earn Interest
         skip(1 days);
+
+        uint256 lenderProfit = strategy.balanceOfLentAssets() / 100;
+        airdrop(ERC20(borrowToken), address(lenderVault), lenderProfit);
+        lenderVault.report();
 
         // Report profit
         vm.prank(keeper);

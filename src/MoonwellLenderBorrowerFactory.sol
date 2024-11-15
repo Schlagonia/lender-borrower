@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.18;
 
-import {LenderBorrower, ERC20} from "./LenderBorrower.sol";
+import {MoonwellLenderBorrower, ERC20} from "./MoonwellLenderBorrower.sol";
 import {IStrategyInterface} from "./interfaces/IStrategyInterface.sol";
 
-contract StrategyFactory {
+contract MoonwellLenderBorrowerFactory {
     event NewStrategy(address indexed strategy, address indexed asset);
 
     address public immutable GOV;
@@ -41,11 +41,24 @@ contract StrategyFactory {
     function newStrategy(
         address _asset,
         string calldata _name,
-        address _borrowToken
+        address _borrowToken,
+        address _cToken,
+        address _cBorrowToken,
+        address _lenderVault
     ) external virtual returns (address) {
         // tokenized strategies available setters.
         IStrategyInterface _newStrategy = IStrategyInterface(
-            address(0) //new LenderBorrower(_asset, _name, _borrowToken, GOV))
+            address(
+                new MoonwellLenderBorrower(
+                    _asset,
+                    _name,
+                    _borrowToken,
+                    GOV,
+                    _cToken,
+                    _cBorrowToken,
+                    _lenderVault
+                )
+            )
         );
 
         _newStrategy.setPerformanceFeeRecipient(performanceFeeRecipient);

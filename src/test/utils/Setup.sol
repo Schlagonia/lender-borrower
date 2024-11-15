@@ -4,8 +4,10 @@ pragma solidity ^0.8.18;
 import "forge-std/console2.sol";
 import {ExtendedTest} from "./ExtendedTest.sol";
 
-import {LenderBorrower, ERC20} from "../../LenderBorrower.sol";
-import {StrategyFactory} from "../../StrategyFactory.sol";
+import {MockStrategy} from "@periphery/test/mocks/MockStrategy.sol";
+
+import {MoonwellLenderBorrower, ERC20, IOracle, CErc20I, IAeroRouter} from "../../MoonwellLenderBorrower.sol";
+import {MoonwellLenderBorrowerFactory} from "../../MoonwellLenderBorrowerFactory.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
 
 // Inherit the events so they can be checked if desired.
@@ -24,9 +26,20 @@ contract Setup is ExtendedTest, IEvents {
     ERC20 public asset;
     IStrategyInterface public strategy;
 
-    StrategyFactory public strategyFactory;
+    MoonwellLenderBorrowerFactory public strategyFactory;
+
+    ERC20 internal constant WELL =
+        ERC20(0xA88594D404727625A9437C3f886C7643872296AE);
+
+    address internal constant AERODROME_FACTORY =
+        0x420DD381b31aEf6683db6B902084cB0FFECe40Da;
 
     address public borrowToken;
+    CErc20I public cToken = CErc20I(0xEdc817A28E8B93B03976FBd4a3dDBc9f7D176c22);
+    CErc20I public cBorrowToken =
+        CErc20I(0x628ff693426583D9a7FB391E54366292F509D457);
+    IStrategyInterface public lenderVault;
+    address public rewardToken = address(WELL);
 
     mapping(string => address) public tokenAddrs;
 
@@ -46,8 +59,8 @@ contract Setup is ExtendedTest, IEvents {
     uint256 public MAX_BPS = 10_000;
 
     // Fuzz from $0.01 of 1e6 stable coins up to 1 trillion of a 1e18 coin
-    uint256 public maxFuzzAmount = 1e30;
-    uint256 public minFuzzAmount = 10_000;
+    uint256 public maxFuzzAmount = 1_000_000e6;
+    uint256 public minFuzzAmount = 1e4;
 
     // Default profit max unlock time is set for 10 days
     uint256 public profitMaxUnlockTime = 10 days;
@@ -56,12 +69,19 @@ contract Setup is ExtendedTest, IEvents {
         _setTokenAddrs();
 
         // Set asset
-        asset = ERC20(tokenAddrs["DAI"]);
+        asset = ERC20(tokenAddrs["USDC"]);
+        borrowToken = tokenAddrs["WETH"];
+
+        lenderVault = IStrategyInterface(
+            address(new MockStrategy(borrowToken))
+        ); // 0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca
+        lenderVault.setProfitMaxUnlockTime(0);
+        lenderVault.setPerformanceFee(0);
 
         // Set decimals
         decimals = asset.decimals();
 
-        strategyFactory = new StrategyFactory(
+        strategyFactory = new MoonwellLenderBorrowerFactory(
             management,
             performanceFeeRecipient,
             keeper,
@@ -71,6 +91,8 @@ contract Setup is ExtendedTest, IEvents {
 
         // Deploy strategy and set variables
         strategy = IStrategyInterface(setUpStrategy());
+
+        setRoutes();
 
         borrowToken = strategy.borrowToken();
 
@@ -92,7 +114,10 @@ contract Setup is ExtendedTest, IEvents {
                 strategyFactory.newStrategy(
                     address(asset),
                     "Tokenized Strategy",
-                    borrowToken
+                    borrowToken,
+                    address(cToken),
+                    address(cBorrowToken),
+                    address(lenderVault)
                 )
             )
         );
@@ -101,6 +126,62 @@ contract Setup is ExtendedTest, IEvents {
         _strategy.acceptManagement();
 
         return address(_strategy);
+    }
+
+    function setRoutes() public {
+        IAeroRouter.Route[] memory borrowRoute = new IAeroRouter.Route[](1);
+        borrowRoute[0] = IAeroRouter.Route({
+            from: rewardToken,
+            to: tokenAddrs["WETH"],
+            stable: false,
+            factory: AERODROME_FACTORY
+        });
+
+        vm.prank(management);
+        strategy.setRoutes(rewardToken, borrowToken, borrowRoute);
+
+        IAeroRouter.Route[] memory assetRoute = new IAeroRouter.Route[](2);
+        assetRoute[0] = IAeroRouter.Route({
+            from: rewardToken,
+            to: tokenAddrs["WETH"],
+            stable: false,
+            factory: AERODROME_FACTORY
+        });
+        assetRoute[1] = IAeroRouter.Route({
+            from: tokenAddrs["WETH"],
+            to: address(asset),
+            stable: false,
+            factory: AERODROME_FACTORY
+        });
+
+        vm.prank(management);
+        strategy.setRoutes(rewardToken, address(asset), assetRoute);
+
+        IAeroRouter.Route[] memory assetToBorrowRoute = new IAeroRouter.Route[](
+            1
+        );
+        assetToBorrowRoute[0] = IAeroRouter.Route({
+            from: address(asset),
+            to: borrowToken,
+            stable: false,
+            factory: AERODROME_FACTORY
+        });
+
+        vm.prank(management);
+        strategy.setRoutes(address(asset), borrowToken, assetToBorrowRoute);
+
+        IAeroRouter.Route[] memory borrowToAssetRoute = new IAeroRouter.Route[](
+            1
+        );
+        borrowToAssetRoute[0] = IAeroRouter.Route({
+            from: borrowToken,
+            to: address(asset),
+            stable: false,
+            factory: AERODROME_FACTORY
+        });
+
+        vm.prank(management);
+        strategy.setRoutes(borrowToken, address(asset), borrowToAssetRoute);
     }
 
     function depositIntoStrategy(
@@ -165,11 +246,11 @@ contract Setup is ExtendedTest, IEvents {
     function _setTokenAddrs() internal {
         tokenAddrs["WBTC"] = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
         tokenAddrs["YFI"] = 0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e;
-        tokenAddrs["WETH"] = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+        tokenAddrs["WETH"] = 0x4200000000000000000000000000000000000006;
         tokenAddrs["LINK"] = 0x514910771AF9Ca656af840dff83E8264EcF986CA;
         tokenAddrs["USDT"] = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
         tokenAddrs["DAI"] = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
-        tokenAddrs["USDC"] = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+        tokenAddrs["USDC"] = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     }
 
     function _toUsd(
@@ -179,7 +260,7 @@ contract Setup is ExtendedTest, IEvents {
         if (_amount == 0) return 0;
         unchecked {
             return
-                (_amount * _getPrice(_token)) /
+                (_amount * _getCompoundPrice(_token)) /
                 (uint256(10 ** ERC20(_token).decimals()));
         }
     }
@@ -192,9 +273,14 @@ contract Setup is ExtendedTest, IEvents {
         unchecked {
             return
                 (_amount * (uint256(10 ** ERC20(_token).decimals()))) /
-                _getPrice(_token);
+                _getCompoundPrice(_token);
         }
     }
 
-    function _getPrice(address _asset) internal view returns (uint256 price) {}
+    function _getCompoundPrice(
+        address _asset
+    ) internal view returns (uint256 price) {
+        address priceFeed = strategy.tokenInfo(_asset).priceFeed;
+        return uint256(IOracle(priceFeed).latestAnswer());
+    }
 }

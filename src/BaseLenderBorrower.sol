@@ -5,6 +5,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {BaseHealthCheck, ERC20} from "@periphery/Bases/HealthCheck/BaseHealthCheck.sol";
 
+import "forge-std/console2.sol";
+
 /**
  * @title Base Lender Borrower
  */
@@ -203,6 +205,8 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             balanceOfAsset() +
             balanceOfCollateral() -
             _borrowTokenOwedInAsset();
+
+        console2.log("harvestAndReport", _totalAssets);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -347,10 +351,14 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         uint256 maxBorrow = Math.min(_lenderMaxDeposit(), _maxBorrowAmount());
 
         // Either the max supply or the max we could borrow / targetLTV.
-        return Math.min(
-            maxDeposit, 
-            _fromUsd(_toUsd(maxBorrow, borrowToken) * 1e18 / _getTargetLTV(), address(asset))
-        );
+        return
+            Math.min(
+                maxDeposit,
+                _fromUsd(
+                    (_toUsd(maxBorrow, borrowToken) * 1e18) / _getTargetLTV(),
+                    address(asset)
+                )
+            );
     }
 
     /**

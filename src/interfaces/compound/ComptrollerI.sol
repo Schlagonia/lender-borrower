@@ -129,13 +129,17 @@ interface ComptrollerI {
 
     function claimComp(address holder, CTokenI[] memory cTokens) external;
 
-    function markets(
-        address ctoken
-    ) external view returns (bool, uint256, bool);
+    function markets(address ctoken) external view returns (bool, uint256);
 
     function compSpeeds(address ctoken) external view returns (uint256); // will be deprecated
     function compSupplySpeeds(address ctoken) external view returns (uint256);
     function compBorrowSpeeds(address ctoken) external view returns (uint256);
 
     function oracle() external view returns (address);
+
+    function supplyCaps(address cToken) external view returns (uint256);
+
+    function borrowCaps(address cToken) external view returns (uint256);
+
+    function borrowGuardianPaused(address cToken) external view returns (bool);
 }
