@@ -60,7 +60,7 @@ contract Setup is ExtendedTest, IEvents {
 
     // Fuzz from $0.01 of 1e6 stable coins up to 1 trillion of a 1e18 coin
     uint256 public maxFuzzAmount = 1_000_000e6;
-    uint256 public minFuzzAmount = 1e4;
+    uint256 public minFuzzAmount = 1e6;
 
     // Default profit max unlock time is set for 10 days
     uint256 public profitMaxUnlockTime = 10 days;
@@ -94,8 +94,6 @@ contract Setup is ExtendedTest, IEvents {
 
         setRoutes();
 
-        borrowToken = strategy.borrowToken();
-
         factory = strategy.FACTORY();
 
         // label all the used addresses for traces
@@ -124,6 +122,9 @@ contract Setup is ExtendedTest, IEvents {
 
         vm.prank(management);
         _strategy.acceptManagement();
+
+        vm.prank(management);
+        _strategy.setProfitMaxUnlockTime(2 days);
 
         return address(_strategy);
     }

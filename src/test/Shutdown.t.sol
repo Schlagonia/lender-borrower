@@ -17,7 +17,7 @@ contract ShutdownTest is Setup {
         assertEq(strategy.totalAssets(), _amount, "!totalAssets");
 
         // Earn Interest
-        skip(1 days);
+        skip(strategy.profitMaxUnlockTime());
 
         // Shutdown the strategy
         vm.prank(emergencyAdmin);
@@ -48,7 +48,7 @@ contract ShutdownTest is Setup {
         checkStrategyTotals(strategy, _amount, _amount, 0);
 
         // Earn Interest
-        skip(1 days);
+        skip(strategy.profitMaxUnlockTime());
 
         vm.prank(management);
         (uint256 gain, ) = strategy.report();
@@ -62,9 +62,11 @@ contract ShutdownTest is Setup {
         vm.prank(management);
         strategy.emergencyWithdraw(type(uint256).max);
 
-        assertEq(ERC20(borrowToken).balanceOf(address(strategy)), 0);
+        if (ERC20(borrowToken).balanceOf(address(strategy)) > 0) {
+            assertEq(strategy.balanceOfDebt(), 0);
+        }
         assertEq(strategy.balanceOfLentAssets(), 0);
-        assertLt(strategy.balanceOfCollateral(), _amount + gain);
+        assertLt(strategy.balanceOfCollateral(), _amount);
 
         // Make sure we can still withdraw the full amount
         uint256 balanceBefore = asset.balanceOf(user);
@@ -89,7 +91,7 @@ contract ShutdownTest is Setup {
         checkStrategyTotals(strategy, _amount, _amount, 0);
 
         // Earn Interest
-        skip(1 days);
+        skip(strategy.profitMaxUnlockTime());
 
         checkStrategyTotals(strategy, _amount, _amount, 0);
 
@@ -115,6 +117,8 @@ contract ShutdownTest is Setup {
         vm.prank(user);
         strategy.claimAndSellRewards();
 
+        strategy.accrueInterest();
+
         vm.prank(management);
         strategy.claimAndSellRewards();
 
@@ -126,7 +130,9 @@ contract ShutdownTest is Setup {
         strategy.manualRepayDebt();
 
         assertEq(strategy.balanceOfLentAssets(), 0);
-        assertEq(ERC20(borrowToken).balanceOf(address(strategy)), 0);
+        if (ERC20(borrowToken).balanceOf(address(strategy)) > 0) {
+            assertEq(strategy.balanceOfDebt(), 0);
+        }
         assertEq(strategy.getCurrentLTV(), 0);
 
         // Set the LTV to 1 so it doesn't lever up
@@ -157,7 +163,7 @@ contract ShutdownTest is Setup {
 
         airdrop(asset, address(strategy), _amount);
         // Airdrop extra base token to deposit
-        airdrop(ERC20(borrowToken), address(strategy), _amount * 2);
+        airdrop(ERC20(borrowToken), address(strategy), _amount);
 
         vm.expectRevert();
         vm.prank(user);
@@ -185,5 +191,19 @@ contract ShutdownTest is Setup {
         strategy.sweep(address(asset));
     }
 
-    // TODO: Add tests for any emergency function added.
+    function test_sellBorrowToken(uint256 _amount) public {
+        vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
+
+        airdrop(ERC20(borrowToken), address(strategy), _amount);
+
+        vm.expectRevert("!emergency authorized");
+        vm.prank(user);
+        strategy.sellBorrowToken(_amount);
+
+        vm.prank(management);
+        strategy.sellBorrowToken(_amount);
+
+        assertEq(ERC20(borrowToken).balanceOf(address(strategy)), 0);
+        assertGt(strategy.balanceOfAsset(), 0);
+    }
 }

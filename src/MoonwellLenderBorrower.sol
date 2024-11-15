@@ -20,8 +20,6 @@ interface MoonwellComptrollerI is ComptrollerI {
     function claimReward(address holder, CErc20I[] memory mTokens) external;
 }
 
-import "forge-std/console2.sol";
-
 contract MoonwellLenderBorrower is BaseLenderBorrower, TradeFactorySwapper {
     using SafeERC20 for ERC20;
 
@@ -91,6 +89,8 @@ contract MoonwellLenderBorrower is BaseLenderBorrower, TradeFactorySwapper {
         ERC20(_borrowToken).safeApprove(_lenderVault, type(uint256).max);
         ERC20(_borrowToken).safeApprove(_cBorrowToken, type(uint256).max);
 
+        minAmountToSell = 1e14;
+
         CompoundOracleI compoundOracle = CompoundOracleI(comptroller.oracle());
 
         tokenInfo[_borrowToken] = TokenInfo({
@@ -121,11 +121,11 @@ contract MoonwellLenderBorrower is BaseLenderBorrower, TradeFactorySwapper {
     // Override each state changing function to accrue interest first.
 
     function _deployFunds(uint256 _amount) internal virtual override accrue {
-        super._deployFunds(_amount);
+        _leveragePosition(_amount);
     }
 
     function _freeFunds(uint256 _amount) internal virtual override accrue {
-        super._freeFunds(_amount);
+        _liquidatePosition(_amount);
     }
 
     function _harvestAndReport()
@@ -176,12 +176,7 @@ contract MoonwellLenderBorrower is BaseLenderBorrower, TradeFactorySwapper {
      * @param amount The amount of the asset to supply.
      */
     function _supplyCollateral(uint256 amount) internal virtual override {
-        if (amount != 0) {
-            require(cToken.mint(amount) == 0);
-        } else {
-            // If 0 still update the balances
-            cToken.exchangeRateCurrent();
-        }
+        require(cToken.mint(amount) == 0);
     }
 
     /**
@@ -612,6 +607,35 @@ contract MoonwellLenderBorrower is BaseLenderBorrower, TradeFactorySwapper {
             "!allowed"
         );
         _addToken(_token, address(asset));
+    }
+
+    function _emergencyWithdraw(
+        uint256 _amount
+    ) internal virtual override accrue {
+        super._emergencyWithdraw(_amount);
+    }
+
+    function sellBorrowToken(
+        uint256 _amount
+    ) external virtual override onlyEmergencyAuthorized accrue {
+        if (_amount == type(uint256).max) {
+            uint256 _balanceOfBorrowToken = balanceOfBorrowToken();
+            _amount = Math.min(
+                balanceOfLentAssets() + _balanceOfBorrowToken - balanceOfDebt(),
+                _balanceOfBorrowToken
+            );
+        }
+        _sellBorrowToken(_amount);
+    }
+
+    function manualRepayDebt()
+        external
+        virtual
+        override
+        onlyEmergencyAuthorized
+        accrue
+    {
+        _repayTokenDebt();
     }
 
     /// @notice Sweep of non-asset ERC20 tokens to governance

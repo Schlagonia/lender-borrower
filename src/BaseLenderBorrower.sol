@@ -5,8 +5,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {BaseHealthCheck, ERC20} from "@periphery/Bases/HealthCheck/BaseHealthCheck.sol";
 
-import "forge-std/console2.sol";
-
 /**
  * @title Base Lender Borrower
  */
@@ -205,8 +203,6 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             balanceOfAsset() +
             balanceOfCollateral() -
             _borrowTokenOwedInAsset();
-
-        console2.log("harvestAndReport", _totalAssets);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -380,7 +376,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @return . The available amount that can be withdrawn in terms of `asset`
      */
     function availableWithdrawLimit(
-        address /*_owner*/
+        address _owner
     ) public view virtual override returns (uint256) {
         /// Default liquidity is the balance of collateral + 1 for rounding.
         uint256 liquidity = balanceOfCollateral() + 1;
@@ -390,8 +386,8 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         if (_isPaused()) {
             liquidity = 0;
 
-            /// If there is not enough liquidity to pay back our full debt.
-        } else if (lenderLiquidity < balanceOfDebt()) {
+            /// If the full lender is not liquid
+        } else if (lenderLiquidity < balanceOfLentAssets()) {
             /// Adjust liquidity based on withdrawing the full amount of debt.
             unchecked {
                 liquidity = ((_fromUsd(
@@ -954,14 +950,16 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     }
 
     // Manually Sell rewards
-    function claimAndSellRewards() external onlyEmergencyAuthorized {
+    function claimAndSellRewards() external virtual onlyEmergencyAuthorized {
         _claimAndSellRewards();
     }
 
     /// @notice Sell a specific amount of `borrowToken` -> asset.
     ///     The amount of borrowToken should be loose in the strategy before this is called
     ///     max uint input will sell any excess borrowToken we have.
-    function sellBorrowToken(uint256 _amount) external onlyEmergencyAuthorized {
+    function sellBorrowToken(
+        uint256 _amount
+    ) external virtual onlyEmergencyAuthorized {
         if (_amount == type(uint256).max) {
             uint256 _balanceOfBorrowToken = balanceOfBorrowToken();
             _amount = Math.min(
@@ -976,7 +974,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     function manualWithdraw(
         address _token,
         uint256 _amount
-    ) external onlyEmergencyAuthorized {
+    ) external virtual onlyEmergencyAuthorized {
         if (_token == borrowToken) {
             _withdrawBorrowToken(_amount);
         } else {
@@ -985,7 +983,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     }
 
     // Manually repay debt with loose borrowToken already in the strategy.
-    function manualRepayDebt() external onlyEmergencyAuthorized {
+    function manualRepayDebt() external virtual onlyEmergencyAuthorized {
         _repayTokenDebt();
     }
 }

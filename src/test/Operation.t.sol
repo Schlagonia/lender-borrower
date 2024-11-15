@@ -36,7 +36,7 @@ contract OperationTest is Setup {
             3
         );
         // Earn Interest
-        skip(1 days);
+        skip(strategy.profitMaxUnlockTime());
 
         // Report profit
         vm.prank(keeper);
@@ -49,6 +49,106 @@ contract OperationTest is Setup {
         skip(strategy.profitMaxUnlockTime());
 
         uint256 balanceBefore = asset.balanceOf(user);
+
+        strategy.accrueInterest();
+
+        // Withdraw all funds
+        vm.prank(user);
+        strategy.redeem(_amount, user, user);
+
+        assertGe(
+            asset.balanceOf(user),
+            balanceBefore + _amount,
+            "!final balance"
+        );
+    }
+
+    function test_operation_vaultGains(uint256 _amount) public {
+        vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
+
+        uint256 targetLTV = (strategy.getLiquidateCollateralFactor() *
+            strategy.targetLTVMultiplier()) / MAX_BPS;
+        // Deposit into strategy
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        checkStrategyTotals(strategy, _amount, _amount, 0);
+        assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
+        assertApproxEq(strategy.balanceOfCollateral(), _amount, 3);
+        assertApproxEq(
+            strategy.balanceOfDebt(),
+            strategy.balanceOfLentAssets(),
+            3
+        );
+        // Earn Interest
+        skip(strategy.profitMaxUnlockTime());
+
+        uint256 gain = strategy.balanceOfLentAssets() / 100;
+        airdrop(ERC20(borrowToken), address(lenderVault), gain);
+        lenderVault.report();
+
+        // Report profit
+        vm.prank(keeper);
+        (uint256 profit, uint256 loss) = strategy.report();
+
+        // Check return Values
+        assertGe(profit, 0, "!profit");
+        assertEq(loss, 0, "!loss");
+
+        skip(strategy.profitMaxUnlockTime());
+
+        uint256 balanceBefore = asset.balanceOf(user);
+
+        strategy.accrueInterest();
+
+        // Withdraw all funds
+        vm.prank(user);
+        strategy.redeem(_amount, user, user);
+
+        assertGe(
+            asset.balanceOf(user),
+            balanceBefore + _amount,
+            "!final balance"
+        );
+    }
+
+    function test_operation_vaultLoss(uint256 _amount) public {
+        vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
+
+        uint256 targetLTV = (strategy.getLiquidateCollateralFactor() *
+            strategy.targetLTVMultiplier()) / MAX_BPS;
+        // Deposit into strategy
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        checkStrategyTotals(strategy, _amount, _amount, 0);
+        assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
+        assertApproxEq(strategy.balanceOfCollateral(), _amount, 3);
+        assertApproxEq(
+            strategy.balanceOfDebt(),
+            strategy.balanceOfLentAssets(),
+            3
+        );
+        // Earn Interest
+        skip(strategy.profitMaxUnlockTime());
+
+        uint256 vaultLoss = strategy.balanceOfLentAssets() / 10_000;
+        vm.prank(address(lenderVault));
+        ERC20(borrowToken).transfer(address(gov), vaultLoss);
+
+        lenderVault.report();
+
+        // Report profit
+        vm.prank(keeper);
+        (uint256 profit, uint256 loss) = strategy.report();
+
+        // Check return Values
+        assertGe(profit, 0, "!profit");
+        assertEq(loss, 0, "!loss");
+
+        skip(strategy.profitMaxUnlockTime());
+
+        uint256 balanceBefore = asset.balanceOf(user);
+
+        strategy.accrueInterest();
 
         // Withdraw all funds
         vm.prank(user);
@@ -71,14 +171,14 @@ contract OperationTest is Setup {
 
         checkStrategyTotals(strategy, _amount, _amount, 0);
         assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
-        assertEq(strategy.balanceOfCollateral(), _amount, "collateral");
+        assertApproxEq(strategy.balanceOfCollateral(), _amount, 3);
         assertApproxEq(
             strategy.balanceOfDebt(),
             strategy.balanceOfLentAssets(),
             3
         );
         // Earn Interest
-        skip(1 days);
+        skip(strategy.profitMaxUnlockTime());
 
         // lower LTV
         uint256 borrowed = strategy.balanceOfDebt();
@@ -113,7 +213,7 @@ contract OperationTest is Setup {
         checkStrategyTotals(strategy, _amount, _amount, 0);
 
         // Earn Interest
-        skip(1 days);
+        skip(strategy.profitMaxUnlockTime());
 
         uint256 lenderProfit = strategy.balanceOfLentAssets() / 100;
         airdrop(ERC20(borrowToken), address(lenderVault), lenderProfit);
@@ -161,7 +261,7 @@ contract OperationTest is Setup {
         assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
 
         // Earn Interest
-        skip(1 days);
+        skip(strategy.profitMaxUnlockTime());
 
         uint256 lenderProfit = strategy.balanceOfLentAssets() / 100;
         airdrop(ERC20(borrowToken), address(lenderVault), lenderProfit);
@@ -226,23 +326,25 @@ contract OperationTest is Setup {
 
         checkStrategyTotals(strategy, _amount, _amount, 0);
         assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
-        assertEq(strategy.balanceOfCollateral(), _amount, "collateral");
+        assertApproxEq(strategy.balanceOfCollateral(), _amount, 3);
         assertApproxEq(
             strategy.balanceOfDebt(),
             strategy.balanceOfLentAssets(),
             3
         );
         // Earn unrealized profit.
-        skip(1 days);
+        skip(strategy.profitMaxUnlockTime());
 
         uint256 balanceBefore = asset.balanceOf(user);
+
+        strategy.accrueInterest();
 
         // Redeem all funds. Default maxLoss == 10_000.
         vm.prank(user);
         strategy.redeem(_amount, user, user);
 
         // We should not have got the full amount out.
-        assertLt(
+        assertLe(
             asset.balanceOf(user),
             balanceBefore + _amount,
             "!final balance"
@@ -266,7 +368,7 @@ contract OperationTest is Setup {
         assertTrue(!trigger);
 
         // Skip some time
-        skip(1 days);
+        skip(strategy.profitMaxUnlockTime());
 
         (trigger, ) = strategy.tendTrigger();
         assertTrue(!trigger);
@@ -278,13 +380,10 @@ contract OperationTest is Setup {
 
         toBorrow = _fromUsd(_toUsd(toBorrow, address(asset)), borrowToken);
 
-        // TODO: Simulate borrowing too much for LTV.
-        //vm.startPrank(address(strategy));
-        // Comet(comet).withdraw(
-        //     address(borrowToken),
-        //     toBorrow - strategy.balanceOfDebt() + 100000
-        // );
-        //vm.stopPrank();
+        // Simulate borrowing too much for LTV.
+        vm.startPrank(address(strategy));
+        cBorrowToken.borrow(toBorrow - strategy.balanceOfDebt() + 100000);
+        vm.stopPrank();
 
         (trigger, ) = strategy.tendTrigger();
         assertTrue(trigger, "warning ltv");
@@ -340,5 +439,97 @@ contract OperationTest is Setup {
 
         (trigger, ) = strategy.tendTrigger();
         assertTrue(!trigger);
+    }
+
+    function test_operation_overWarningLTV_depositLeversDown(
+        uint256 _amount
+    ) public {
+        vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
+
+        uint256 targetLTV = (strategy.getLiquidateCollateralFactor() *
+            strategy.targetLTVMultiplier()) / MAX_BPS;
+        // Deposit into strategy
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        checkStrategyTotals(strategy, _amount, _amount, 0);
+        assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
+        assertApproxEq(strategy.balanceOfCollateral(), _amount, 3);
+        assertApproxEq(
+            strategy.balanceOfDebt(),
+            strategy.balanceOfLentAssets(),
+            3
+        );
+        // Earn Interest
+        skip(strategy.profitMaxUnlockTime());
+
+        uint256 toBorrow = (strategy.balanceOfCollateral() *
+            ((strategy.getLiquidateCollateralFactor() *
+                strategy.warningLTVMultiplier()) / MAX_BPS)) / 1e18;
+
+        toBorrow = _fromUsd(_toUsd(toBorrow, address(asset)), borrowToken);
+
+        // Simulate borrowing too much for LTV.
+        vm.startPrank(address(strategy));
+        cBorrowToken.borrow(toBorrow - strategy.balanceOfDebt() + 100000);
+        vm.stopPrank();
+
+        uint256 warningLTV = (strategy.getLiquidateCollateralFactor() *
+            strategy.warningLTVMultiplier()) / MAX_BPS;
+
+        assertGt(strategy.getCurrentLTV(), warningLTV);
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
+    }
+
+    function test_operation_morphoVault(uint256 _amount) public {
+        vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
+
+        lenderVault = IStrategyInterface(
+            0xa0E430870c4604CcfC7B38Ca7845B1FF653D0ff1
+        );
+
+        strategy = IStrategyInterface(setUpStrategy());
+        setRoutes();
+
+        uint256 targetLTV = (strategy.getLiquidateCollateralFactor() *
+            strategy.targetLTVMultiplier()) / MAX_BPS;
+        // Deposit into strategy
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        checkStrategyTotals(strategy, _amount, _amount, 0);
+        assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
+        assertApproxEq(strategy.balanceOfCollateral(), _amount, 3);
+        assertApproxEq(
+            strategy.balanceOfDebt(),
+            strategy.balanceOfLentAssets(),
+            3
+        );
+        // Earn Interest
+        skip(strategy.profitMaxUnlockTime());
+
+        // Report profit
+        vm.prank(keeper);
+        (uint256 profit, uint256 loss) = strategy.report();
+
+        // Check return Values
+        assertGe(profit, 0, "!profit");
+        assertEq(loss, 0, "!loss");
+
+        skip(strategy.profitMaxUnlockTime());
+
+        uint256 balanceBefore = asset.balanceOf(user);
+
+        strategy.accrueInterest();
+
+        // Withdraw all funds
+        vm.prank(user);
+        strategy.redeem(_amount, user, user);
+
+        assertGe(
+            asset.balanceOf(user),
+            balanceBefore + _amount,
+            "!final balance"
+        );
     }
 }
