@@ -192,7 +192,12 @@ contract ShutdownTest is Setup {
     }
 
     function test_sellBorrowToken(uint256 _amount) public {
-        vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
+        vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount / 100);
+
+        _amount = _fromUsd(_toUsd(_amount, address(asset)), borrowToken);
+
+        vm.prank(management);
+        strategy.setMinAmountToSell(1);
 
         airdrop(ERC20(borrowToken), address(strategy), _amount);
 

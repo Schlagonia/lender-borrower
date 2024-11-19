@@ -486,7 +486,7 @@ contract OperationTest is Setup {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
 
         lenderVault = IStrategyInterface(
-            0xa0E430870c4604CcfC7B38Ca7845B1FF653D0ff1
+            0xb65f1e6394AaDC3dc1AD4B8E5cF79Bbb566Dc195
         );
 
         strategy = IStrategyInterface(setUpStrategy());

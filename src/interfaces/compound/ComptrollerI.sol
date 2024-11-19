@@ -127,7 +127,7 @@ interface ComptrollerI {
     /***  Comp claims ****/
     function claimComp(address holder) external;
 
-    function claimComp(address holder, CTokenI[] memory cTokens) external;
+    function claimComp(address holder, address[] memory cTokens) external;
 
     function markets(address ctoken) external view returns (bool, uint256);
 
@@ -142,4 +142,6 @@ interface ComptrollerI {
     function borrowCaps(address cToken) external view returns (uint256);
 
     function borrowGuardianPaused(address cToken) external view returns (bool);
+
+    function rewardDistributor() external view returns (address);
 }

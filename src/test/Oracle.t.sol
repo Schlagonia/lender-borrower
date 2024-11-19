@@ -3,14 +3,14 @@ pragma solidity ^0.8.18;
 import "forge-std/console2.sol";
 import {Setup} from "./utils/Setup.sol";
 
-import {StrategyAprOracle} from "../periphery/StrategyAprOracle.sol";
+import {MoonwellLenderBorrowerAprOracle} from "../periphery/MoonwellLenderBorrowerAprOracle.sol";
 
 contract OracleTest is Setup {
-    StrategyAprOracle public oracle;
+    MoonwellLenderBorrowerAprOracle public oracle;
 
     function setUp() public override {
         super.setUp();
-        oracle = new StrategyAprOracle();
+        oracle = new MoonwellLenderBorrowerAprOracle();
     }
 
     function checkOracle(address _strategy, uint256 _delta) public {
@@ -23,17 +23,20 @@ contract OracleTest is Setup {
         assertGt(currentApr, 0, "ZERO");
         assertLt(currentApr, 1e18, "+100%");
 
-        // TODO: Uncomment to test the apr goes up and down based on debt changes
-        /**
-        uint256 negativeDebtChangeApr = oracle.aprAfterDebtChange(_strategy, -int256(_delta));
+        uint256 negativeDebtChangeApr = oracle.aprAfterDebtChange(
+            _strategy,
+            -int256(_delta)
+        );
 
         // The apr should go up if deposits go down
         assertLt(currentApr, negativeDebtChangeApr, "negative change");
 
-        uint256 positiveDebtChangeApr = oracle.aprAfterDebtChange(_strategy, int256(_delta));
+        uint256 positiveDebtChangeApr = oracle.aprAfterDebtChange(
+            _strategy,
+            int256(_delta)
+        );
 
         assertGt(currentApr, positiveDebtChangeApr, "positive change");
-        */
 
         // TODO: Uncomment if there are setter functions to test.
         /**

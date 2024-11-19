@@ -6,7 +6,9 @@ import {ExtendedTest} from "./ExtendedTest.sol";
 
 import {MockStrategy} from "@periphery/test/mocks/MockStrategy.sol";
 
-import {MoonwellLenderBorrower, ERC20, IOracle, CErc20I, IAeroRouter} from "../../MoonwellLenderBorrower.sol";
+import {MoonwellOracle} from "../../periphery/MoonwellOracle.sol";
+import {CErc20I} from "../../interfaces/compound/CErc20I.sol";
+import {MoonwellLenderBorrower, ERC20, IOracle, IAeroRouter} from "../../MoonwellLenderBorrower.sol";
 import {MoonwellLenderBorrowerFactory} from "../../MoonwellLenderBorrowerFactory.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
 
@@ -27,6 +29,8 @@ contract Setup is ExtendedTest, IEvents {
     IStrategyInterface public strategy;
 
     MoonwellLenderBorrowerFactory public strategyFactory;
+
+    MoonwellOracle public moonwellOracle = new MoonwellOracle();
 
     ERC20 internal constant WELL =
         ERC20(0xA88594D404727625A9437C3f886C7643872296AE);
@@ -125,6 +129,9 @@ contract Setup is ExtendedTest, IEvents {
 
         vm.prank(management);
         _strategy.setProfitMaxUnlockTime(2 days);
+
+        vm.prank(management);
+        _strategy.setPriceFeed(rewardToken, address(moonwellOracle));
 
         return address(_strategy);
     }
