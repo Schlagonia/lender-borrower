@@ -94,7 +94,12 @@ abstract contract LenderBorrower is BaseLenderBorrower {
      * @notice Gets the max amount of `borrowToken` that could be borrowed
      * @return The max borrow amount
      */
-    function _maxBorrowAmount() internal view virtual override returns (uint256);
+    function _maxBorrowAmount()
+        internal
+        view
+        virtual
+        override
+        returns (uint256);
 
     /**
      * @notice Gets the max amount of `borrowToken` that could be deposited to the lender
