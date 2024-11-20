@@ -5,7 +5,6 @@ import {IStrategyInterface} from "../interfaces/IStrategyInterface.sol";
 import {Depositor, Comet} from "../Depositor.sol";
 
 contract StrategyAprOracle {
-
     /**
      * @notice Will return the expected Apr of a strategy post a debt change.
      * @dev _delta is a signed integer so that it can also represent a debt

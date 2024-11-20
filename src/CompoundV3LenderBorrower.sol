@@ -231,7 +231,7 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
      * @notice Gets the supply cap for the collateral asset if any
      * @return The supply cap
      */
-    function _collateralSupplyCap()
+    function _maxCollateralDeposit()
         internal
         view
         virtual
@@ -243,6 +243,20 @@ abstract contract CompoundV3LenderBorrower is BaseLenderBorrower {
                 comet.getAssetInfoByAddress(address(asset)).supplyCap -
                     comet.totalsCollateral(address(asset)).totalSupplyAsset
             );
+    }
+
+    /**
+     * @notice Gets the max amount of `borrowToken` that could be borrowed
+     * @return The max borrow amount
+     */
+    function _maxBorrowAmount()
+        internal
+        view
+        virtual
+        override
+        returns (uint256)
+    {
+        return ERC20(borrowToken).balanceOf(address(comet));
     }
 
     /**

@@ -343,10 +343,18 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             ? depositLimit - currentAssets
             : 0;
 
-        uint256 supplyCap = _collateralSupplyCap();
+        uint256 maxDeposit = Math.min(_maxCollateralDeposit(), limit);
+        uint256 maxBorrow = Math.min(_lenderMaxDeposit(), _maxBorrowAmount());
 
-        // Return whatever one is lower.
-        return limit > supplyCap ? supplyCap : limit;
+        // Either the max supply or the max we could borrow / targetLTV.
+        return
+            Math.min(
+                maxDeposit,
+                _fromUsd(
+                    (_toUsd(maxBorrow, borrowToken) * 1e18) / _getTargetLTV(),
+                    address(asset)
+                )
+            );
     }
 
     /**
@@ -378,8 +386,8 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         if (_isPaused()) {
             liquidity = 0;
 
-            /// If there is not enough liquidity to pay back our full debt.
-        } else if (lenderLiquidity < balanceOfDebt()) {
+            /// If the full lender is not liquid
+        } else if (lenderLiquidity < balanceOfLentAssets()) {
             /// Adjust liquidity based on withdrawing the full amount of debt.
             unchecked {
                 liquidity = ((_fromUsd(
@@ -443,7 +451,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
                 amountToBorrowBT = 0;
             }
 
-            /// Need to have at least the min set by comet
+            /// Need to have at least the min threshold
             if (balanceOfDebt() + amountToBorrowBT > minThreshold) {
                 _borrow(amountToBorrowBT);
             }
@@ -659,7 +667,13 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @notice Gets the supply cap for the collateral asset if any
      * @return The supply cap
      */
-    function _collateralSupplyCap() internal view virtual returns (uint256);
+    function _maxCollateralDeposit() internal view virtual returns (uint256);
+
+    /**
+     * @notice Gets the max amount of `borrowToken` that could be borrowed
+     * @return The max borrow amount
+     */
+    function _maxBorrowAmount() internal view virtual returns (uint256);
 
     /**
      * @notice Gets the max amount of `borrowToken` that could be deposited to the lender
@@ -852,13 +866,13 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     /// ----------------- HARVEST / TOKEN CONVERSIONS -----------------
 
     /**
-     * @notice Claims reward tokens from Comet and depositor
+     * @notice Claims reward tokens.
      */
     function _claimRewards() internal virtual;
 
     /**
      * @notice Claims and sells available reward tokens
-     * @dev Handles claiming, selling rewards for base tokens if needed, and selling remaining rewards for asset
+     * @dev Handles claiming, selling rewards for borrow tokens if needed, and selling remaining rewards for asset
      */
     function _claimAndSellRewards() internal virtual;
 
@@ -927,6 +941,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         if (_amount > 0) {
             _withdrawBorrowToken(Math.min(_amount, _lenderMaxWithdraw()));
         }
+
         // Repay everything we can.
         _repayTokenDebt();
 
@@ -935,14 +950,16 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     }
 
     // Manually Sell rewards
-    function claimAndSellRewards() external onlyEmergencyAuthorized {
+    function claimAndSellRewards() external virtual onlyEmergencyAuthorized {
         _claimAndSellRewards();
     }
 
     /// @notice Sell a specific amount of `borrowToken` -> asset.
     ///     The amount of borrowToken should be loose in the strategy before this is called
     ///     max uint input will sell any excess borrowToken we have.
-    function sellBorrowToken(uint256 _amount) external onlyEmergencyAuthorized {
+    function sellBorrowToken(
+        uint256 _amount
+    ) external virtual onlyEmergencyAuthorized {
         if (_amount == type(uint256).max) {
             uint256 _balanceOfBorrowToken = balanceOfBorrowToken();
             _amount = Math.min(
@@ -957,7 +974,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     function manualWithdraw(
         address _token,
         uint256 _amount
-    ) external onlyEmergencyAuthorized {
+    ) external virtual onlyEmergencyAuthorized {
         if (_token == borrowToken) {
             _withdrawBorrowToken(_amount);
         } else {
@@ -966,7 +983,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     }
 
     // Manually repay debt with loose borrowToken already in the strategy.
-    function manualRepayDebt() external onlyEmergencyAuthorized {
+    function manualRepayDebt() external virtual onlyEmergencyAuthorized {
         _repayTokenDebt();
     }
 }

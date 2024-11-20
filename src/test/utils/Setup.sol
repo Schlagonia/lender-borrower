@@ -186,7 +186,7 @@ contract Setup is ExtendedTest, IEvents {
 
         vm.prank(management);
         strategy.setRoutes(address(asset), borrowToken, assetToBorrowRoute);
-        
+
         IAeroRouter.Route[] memory borrowToAssetRoute = new IAeroRouter.Route[](
             2
         );
@@ -206,7 +206,6 @@ contract Setup is ExtendedTest, IEvents {
 
         vm.prank(management);
         strategy.setRoutes(borrowToken, address(asset), borrowToAssetRoute);
-        
     }
 
     function depositIntoStrategy(
