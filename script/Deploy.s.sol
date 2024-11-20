@@ -3,20 +3,34 @@ pragma solidity >=0.8.18;
 
 import "forge-std/Script.sol";
 
-//import {MoonwellLenderBorrowerAprOracle} from "../src/periphery/MoonwellLenderBorrowerAprOracle.sol";
+import {MoonwellOracle} from "../src/periphery/MoonwellOracle.sol";
+import {MoonwellLenderBorrowerAprOracle} from "../src/periphery/MoonwellLenderBorrowerAprOracle.sol";
 import {MoonwellLenderBorrowerFactory} from "../src/MoonwellLenderBorrowerFactory.sol";
-
+import {IStrategyInterface} from "../src/interfaces/IStrategyInterface.sol";
 // Deploy a contract to a deterministic address with create2 factory.
 contract Deploy is Script {
 
-    address public management = 0x1b5f15DCb82d25f91c65b53CEe151E8b9fBdD271;
+    address public management;
+
+    address internal constant WELL = 0xA88594D404727625A9437C3f886C7643872296AE;
+
+    IStrategyInterface public strategy = IStrategyInterface(0xD95872cF52477DD9116DBD1c5A3d9d595D37024a);
+
     function run() external {
         vm.startBroadcast();
 
-        //StrategyAprMoonwellLenderBorrowerAprOracle oracle = new StrategyAprMoonwellLenderBorrowerAprOracle();
+        MoonwellLenderBorrowerAprOracle oracle = new MoonwellLenderBorrowerAprOracle();
 
-        //console.log("Oracle is ", address(oracle));
+        console.log("Apr Oracle is ", address(oracle));
 
+
+        MoonwellOracle moonwellOracle = new MoonwellOracle();
+
+        console.log("Moonwell Oracle is ", address(moonwellOracle));
+
+        strategy.setPriceFeed(WELL, address(moonwellOracle));
+
+        /**
         MoonwellLenderBorrowerFactory factory = new MoonwellLenderBorrowerFactory(
             management,
             management,
@@ -37,6 +51,7 @@ contract Deploy is Script {
         );
 
         console.log("Strategy is ", strategy);
+        */
 
         vm.stopBroadcast();
     }
