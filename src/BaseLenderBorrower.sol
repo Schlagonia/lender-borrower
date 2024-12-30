@@ -2,36 +2,35 @@
 pragma solidity ^0.8.18;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {BaseHealthCheck, ERC20} from "@periphery/Bases/HealthCheck/BaseHealthCheck.sol";
 
 /**
  * @title Base Lender Borrower
  */
 abstract contract BaseLenderBorrower is BaseHealthCheck {
-    using SafeERC20 for ERC20;
+    uint256 internal constant WAD = 1e18;
 
     /// The token we will be borrowing/supplying.
     address public immutable borrowToken;
 
-    /// @notice Deposit limit for the strategy.
-    uint256 public depositLimit;
-
     /// If set to true, the strategy will not try to repay debt by selling rewards or asset.
     bool public leaveDebtBehind;
 
-    /// @notice Target Loan-To-Value (LTV) multiplier.
+    /// @notice Target Loan-To-Value (LTV) multiplier in Basis Points
     /// @dev Represents the ratio up to which we will borrow, relative to the liquidation threshold.
-    /// LTV is the debt-to-collateral ratio. Default is set to 80% of the liquidation LTV.
+    /// LTV is the debt-to-collateral ratio. Default is set to 70% of the liquidation LTV.
     uint16 public targetLTVMultiplier;
 
-    /// @notice Warning Loan-To-Value (LTV) multiplier
+    /// @notice Warning Loan-To-Value (LTV) multiplier in Basis Points
     /// @dev Represents the ratio at which we will start repaying the debt to avoid liquidation
-    /// Default is set to 90% of the liquidation LTV
-    uint16 public warningLTVMultiplier; // 90% of liquidation LTV
+    /// Default is set to 80% of the liquidation LTV
+    uint16 public warningLTVMultiplier; // 80% of liquidation LTV
 
     /// @notice Slippage tolerance (in basis points) for swaps
     uint64 public slippage;
+
+    /// @notice Deposit limit for the strategy.
+    uint256 public depositLimit;
 
     /// The max the base fee (in gwei) will be for a tend
     uint256 public maxGasPriceToTend;
@@ -267,7 +266,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         uint256 collateralInUsd = _toUsd(balanceOfCollateral(), address(asset));
         uint256 debtInUsd = _toUsd(balanceOfDebt(), borrowToken);
         uint256 currentLTV = collateralInUsd > 0
-            ? (debtInUsd * 1e18) / collateralInUsd
+            ? (debtInUsd * WAD) / collateralInUsd
             : 0;
 
         /// Check if we are over our warning LTV
@@ -285,7 +284,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             /// IF we are lower than our target. (we need a 10% (1000bps) difference)
         } else if ((currentLTV < targetLTV && targetLTV - currentLTV > 1e17)) {
             /// Make sure the increase in debt would keep borrowing costs healthy.
-            uint256 targetDebtUsd = (collateralInUsd * targetLTV) / 1e18;
+            uint256 targetDebtUsd = (collateralInUsd * targetLTV) / WAD;
 
             uint256 amountToBorrowUsd;
             unchecked {
@@ -351,7 +350,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             Math.min(
                 maxDeposit,
                 _fromUsd(
-                    (_toUsd(maxBorrow, borrowToken) * 1e18) / _getTargetLTV(),
+                    (_toUsd(maxBorrow, borrowToken) * WAD) / _getTargetLTV(),
                     address(asset)
                 )
             );
@@ -376,7 +375,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @return . The available amount that can be withdrawn in terms of `asset`
      */
     function availableWithdrawLimit(
-        address _owner
+        address /*_owner*/
     ) public view virtual override returns (uint256) {
         /// Default liquidity is the balance of collateral + 1 for rounding.
         uint256 liquidity = balanceOfCollateral() + 1;
@@ -393,7 +392,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
                 liquidity = ((_fromUsd(
                     _toUsd(lenderLiquidity, borrowToken),
                     address(asset)
-                ) * 1e18) / _getTargetLTV());
+                ) * WAD) / _getTargetLTV());
             }
         }
 
@@ -417,21 +416,21 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         /// Convert debt to USD
         uint256 debtInUsd = _toUsd(balanceOfDebt(), borrowToken);
 
-        /// LTV numbers are always in 1e18
+        /// LTV numbers are always in WAD
         uint256 currentLTV = collateralInUsd > 0
-            ? (debtInUsd * 1e18) / collateralInUsd
+            ? (debtInUsd * WAD) / collateralInUsd
             : 0;
-        uint256 targetLTV = _getTargetLTV(); // 80% under default liquidation Threshold
+        uint256 targetLTV = _getTargetLTV(); // 70% under default liquidation Threshold
 
         /// decide in which range we are and act accordingly:
-        /// SUBOPTIMAL(borrow) (e.g. from 0 to 80% liqLTV)
-        /// HEALTHY(do nothing) (e.g. from 80% to 90% liqLTV)
-        /// UNHEALTHY(repay) (e.g. from 90% to 100% liqLTV)
+        /// SUBOPTIMAL(borrow) (e.g. from 0 to 70% liqLTV)
+        /// HEALTHY(do nothing) (e.g. from 70% to 80% liqLTV)
+        /// UNHEALTHY(repay) (e.g. from 80% to 100% liqLTV)
         if (targetLTV > currentLTV) {
             /// SUBOPTIMAL RATIO: our current Loan-to-Value is lower than what we want
 
             /// we need to take on more debt
-            uint256 targetDebtUsd = (collateralInUsd * targetLTV) / 1e18;
+            uint256 targetDebtUsd = (collateralInUsd * targetLTV) / WAD;
 
             uint256 amountToBorrowUsd;
             unchecked {
@@ -452,13 +451,13 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             }
 
             /// Need to have at least the min threshold
-            if (balanceOfDebt() + amountToBorrowBT > minThreshold) {
+            if (amountToBorrowBT > minThreshold) {
                 _borrow(amountToBorrowBT);
             }
         } else if (currentLTV > _getWarningLTV()) {
             /// UNHEALTHY RATIO
             /// we repay debt to set it to targetLTV
-            uint256 targetDebtUsd = (targetLTV * collateralInUsd) / 1e18;
+            uint256 targetDebtUsd = (targetLTV * collateralInUsd) / WAD;
 
             /// Withdraw the difference from the Depositor
             _withdrawFromLender(
@@ -537,7 +536,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
 
         /// What we need to maintain a health LTV
         uint256 neededCollateral = _fromUsd(
-            (debtInUsd * 1e18) / _getTargetLTV(),
+            (debtInUsd * WAD) / _getTargetLTV(),
             address(asset)
         );
 
@@ -569,7 +568,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         /// We check if the collateral that we are withdrawing leaves us in a risky range, we then take action
         uint256 newCollateralUsd = _toUsd(collateral - amount, address(asset));
 
-        uint256 targetDebtUsd = (newCollateralUsd * _getTargetLTV()) / 1e18;
+        uint256 targetDebtUsd = (newCollateralUsd * _getTargetLTV()) / WAD;
         uint256 targetDebt = _fromUsd(targetDebtUsd, borrowToken);
         uint256 currentDebt = balanceOfDebt();
         /// Repay only if our target debt is lower than our current debt
@@ -794,7 +793,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
 
         unchecked {
             return
-                (_toUsd(balanceOfDebt(), borrowToken) * 1e18) /
+                (_toUsd(balanceOfDebt(), borrowToken) * WAD) /
                 _toUsd(collateral, address(asset));
         }
     }

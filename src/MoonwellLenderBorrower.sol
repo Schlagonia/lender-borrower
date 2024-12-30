@@ -92,7 +92,10 @@ contract MoonwellLenderBorrower is CompoundV2LenderBorrower {
         uint256 owe = balanceOfDebt();
 
         if (owe > have) {
-            uint256 borrowTokenNeeded = owe - have;
+            uint256 borrowTokenNeeded;
+            unchecked {
+                borrowTokenNeeded = owe - have;
+            }
             rewardTokenBalance = WELL.balanceOf(address(this));
             /// We estimate how much we will need in order to get the amount of base
             /// Accounts for slippage and diff from oracle price, just to assure no horrible sandwich
@@ -112,7 +115,10 @@ contract MoonwellLenderBorrower is CompoundV2LenderBorrower {
             );
         } else {
             // We have more than enough to cover our debt, so we can just withdraw and swap the extra
-            uint256 extra = have - owe;
+            uint256 extra;
+            unchecked {
+                extra = have - owe;
+            }
 
             _withdrawFromLender(extra);
 

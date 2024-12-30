@@ -7,7 +7,8 @@ import {ComptrollerI} from "./interfaces/compound/ComptrollerI.sol";
 import {CompoundOracleI} from "./interfaces/compound/CompoundOracleI.sol";
 
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {BaseLenderBorrower, ERC20, SafeERC20, Math} from "./BaseLenderBorrower.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {BaseLenderBorrower, ERC20, Math} from "./BaseLenderBorrower.sol";
 
 abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
     using SafeERC20 for ERC20;
@@ -326,7 +327,7 @@ abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
     function getNetBorrowApr(
         uint256 newAmount
     ) public view virtual override returns (uint256) {
-        return 1e18;
+        return WAD;
     }
 
     /**
@@ -370,7 +371,7 @@ abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
     {
         return
             (cToken.balanceOf(address(this)) * cToken.exchangeRateStored()) /
-            1e18;
+            WAD;
     }
 
     /**
