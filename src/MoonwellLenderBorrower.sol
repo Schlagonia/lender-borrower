@@ -32,23 +32,23 @@ contract MoonwellLenderBorrower is CompoundV2LenderBorrower {
         address _asset,
         string memory _name,
         address _borrowToken,
+        address _lenderVault,
         address _gov,
         address _cToken,
-        address _cBorrowToken,
-        address _lenderVault
+        address _cBorrowToken
     )
         CompoundV2LenderBorrower(
             _asset,
             _name,
             _borrowToken,
+            _lenderVault,
             _gov,
             _cToken,
-            _cBorrowToken,
-            _lenderVault
+            _cBorrowToken
         )
     {
         tokenInfo[address(WELL)] = TokenInfo({
-            priceFeed: address(0),
+            priceFeed: 0xBBF812FC0e45F58121983bd07C5079fF74433a61,
             decimals: uint96(10 ** WELL.decimals())
         });
     }

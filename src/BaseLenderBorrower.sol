@@ -2,12 +2,17 @@
 pragma solidity ^0.8.18;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {BaseHealthCheck, ERC20} from "@periphery/Bases/HealthCheck/BaseHealthCheck.sol";
 
 /**
  * @title Base Lender Borrower
  */
 abstract contract BaseLenderBorrower is BaseHealthCheck {
+    using SafeERC20 for ERC20;
+
     uint256 internal constant WAD = 1e18;
 
     /// The token we will be borrowing/supplying.
@@ -38,6 +43,9 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     /// Thresholds: lower limit on how much base token can be borrowed at a time.
     uint256 internal minThreshold;
 
+    /// The lender vault that will be used to lend and borrow.
+    IERC4626 public immutable lenderVault;
+
     /**
      * @param _asset The address of the asset we are lending/borrowing.
      * @param _name The name of the strategy.
@@ -46,7 +54,8 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     constructor(
         address _asset,
         string memory _name,
-        address _borrowToken
+        address _borrowToken,
+        address _lenderVault
     ) BaseHealthCheck(_asset, _name) {
         borrowToken = _borrowToken;
 
@@ -57,6 +66,13 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         leaveDebtBehind = false;
         maxGasPriceToTend = 200 * 1e9;
         slippage = 500;
+
+        // Allow for address(0) for versions that don't use 4626 vault.
+        if (_lenderVault != address(0)) {
+            lenderVault = IERC4626(_lenderVault);
+            require(lenderVault.asset() == _borrowToken, "!lenderVault");
+            ERC20(_borrowToken).safeApprove(_lenderVault, type(uint256).max);
+        }
     }
 
     /// ----------------- SETTERS -----------------
@@ -631,13 +647,22 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @notice Lends a specified amount of `borrowToken`.
      * @param amount The amount of the borrowToken to lend.
      */
-    function _lendBorrowToken(uint256 amount) internal virtual;
+    function _lendBorrowToken(uint256 amount) internal virtual {
+        lenderVault.deposit(amount, address(this));
+    }
 
     /**
      * @notice Withdraws a specified amount of `borrowToken`.
      * @param amount The amount of the borrowToken to withdraw.
      */
-    function _withdrawBorrowToken(uint256 amount) internal virtual;
+    function _withdrawBorrowToken(uint256 amount) internal virtual {
+        // Use previewWithdraw to round up.
+        uint256 shares = Math.min(
+            lenderVault.previewWithdraw(amount),
+            lenderVault.balanceOf(address(this))
+        );
+        lenderVault.redeem(shares, address(this), address(this));
+    }
 
     // ----------------- INTERNAL VIEW FUNCTIONS ----------------- \\
 
@@ -678,13 +703,18 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @notice Gets the max amount of `borrowToken` that could be deposited to the lender
      * @return The max deposit amount
      */
-    function _lenderMaxDeposit() internal view virtual returns (uint256);
+    function _lenderMaxDeposit() internal view virtual returns (uint256) {
+        return lenderVault.maxDeposit(address(this));
+    }
 
     /**
      * @notice Gets the amount of borrowToken that could be withdrawn from the lender
      * @return The lender liquidity
      */
-    function _lenderMaxWithdraw() internal view virtual returns (uint256);
+    function _lenderMaxWithdraw() internal view virtual returns (uint256) {
+        return
+            lenderVault.convertToAssets(lenderVault.maxRedeem(address(this)));
+    }
 
     /**
      * @notice Gets net borrow APR from depositor
@@ -730,7 +760,10 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @notice Gets full depositor balance
      * @return Depositor balance
      */
-    function balanceOfLentAssets() public view virtual returns (uint256);
+    function balanceOfLentAssets() public view virtual returns (uint256) {
+        return
+            lenderVault.convertToAssets(lenderVault.balanceOf(address(this)));
+    }
 
     /**
      * @notice Gets available balance of asset token

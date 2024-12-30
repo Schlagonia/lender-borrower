@@ -30,7 +30,8 @@ contract Setup is ExtendedTest, IEvents {
 
     MoonwellLenderBorrowerFactory public strategyFactory;
 
-    MoonwellOracle public moonwellOracle = new MoonwellOracle();
+    MoonwellOracle public moonwellOracle =
+        MoonwellOracle(0xBBF812FC0e45F58121983bd07C5079fF74433a61);
 
     ERC20 internal constant WELL =
         ERC20(0xA88594D404727625A9437C3f886C7643872296AE);
@@ -117,9 +118,9 @@ contract Setup is ExtendedTest, IEvents {
                     address(asset),
                     "Tokenized Strategy",
                     borrowToken,
+                    address(lenderVault),
                     address(cToken),
-                    address(cBorrowToken),
-                    address(lenderVault)
+                    address(cBorrowToken)
                 )
             )
         );
@@ -129,9 +130,6 @@ contract Setup is ExtendedTest, IEvents {
 
         vm.prank(management);
         _strategy.setProfitMaxUnlockTime(2 days);
-
-        vm.prank(management);
-        _strategy.setPriceFeed(rewardToken, address(moonwellOracle));
 
         return address(_strategy);
     }

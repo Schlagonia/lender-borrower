@@ -6,9 +6,7 @@ import {CErc20I} from "./interfaces/compound/CErc20I.sol";
 import {ComptrollerI} from "./interfaces/compound/ComptrollerI.sol";
 import {CompoundOracleI} from "./interfaces/compound/CompoundOracleI.sol";
 
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {BaseLenderBorrower, ERC20, Math} from "./BaseLenderBorrower.sol";
+import {BaseLenderBorrower, ERC20, SafeERC20, Math} from "./BaseLenderBorrower.sol";
 
 abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
     using SafeERC20 for ERC20;
@@ -32,8 +30,6 @@ abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
 
     ComptrollerI public immutable comptroller;
 
-    IERC4626 public immutable lenderVault;
-
     uint256 public minAmountToSell;
 
     /// Mapping from token => struct containing its reused info
@@ -43,11 +39,11 @@ abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
         address _asset,
         string memory _name,
         address _borrowToken,
+        address _lenderVault,
         address _gov,
         address _cToken,
-        address _cBorrowToken,
-        address _lenderVault
-    ) BaseLenderBorrower(_asset, _name, _borrowToken) {
+        address _cBorrowToken
+    ) BaseLenderBorrower(_asset, _name, _borrowToken, _lenderVault) {
         GOV = _gov;
         cToken = CErc20I(_cToken);
         require(cToken.underlying() == _asset, "!asset");
@@ -61,11 +57,8 @@ abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
         cTokens[0] = _cToken;
         comptroller.enterMarkets(cTokens);
 
-        lenderVault = IERC4626(_lenderVault);
-        require(lenderVault.asset() == _borrowToken, "!lenderVault");
-
         asset.safeApprove(_cToken, type(uint256).max);
-        ERC20(_borrowToken).safeApprove(_lenderVault, type(uint256).max);
+
         ERC20(_borrowToken).safeApprove(_cBorrowToken, type(uint256).max);
 
         minAmountToSell = 1e14;
@@ -163,27 +156,6 @@ abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
      */
     function _repay(uint256 amount) internal virtual override {
         require(cBorrowToken.repayBorrow(amount) == 0);
-    }
-
-    /**
-     * @notice Lends a specified amount of `borrowToken`.
-     * @param amount The amount of the borrowToken to lend.
-     */
-    function _lendBorrowToken(uint256 amount) internal virtual override {
-        lenderVault.deposit(amount, address(this));
-    }
-
-    /**
-     * @notice Withdraws a specified amount of `borrowToken`.
-     * @param amount The amount of the borrowToken to withdraw.
-     */
-    function _withdrawBorrowToken(uint256 amount) internal virtual override {
-        // Use previewWithdraw to round up.
-        uint256 shares = Math.min(
-            lenderVault.previewWithdraw(amount),
-            lenderVault.balanceOf(address(this))
-        );
-        lenderVault.redeem(shares, address(this), address(this));
     }
 
     // ----------------- INTERNAL VIEW FUNCTIONS ----------------- \\
@@ -291,35 +263,6 @@ abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
     }
 
     /**
-     * @notice Gets the max amount of `borrowToken` that could be deposited to the lender
-     * @return The max deposit amount
-     */
-    function _lenderMaxDeposit()
-        internal
-        view
-        virtual
-        override
-        returns (uint256)
-    {
-        return lenderVault.maxDeposit(address(this));
-    }
-
-    /**
-     * @notice Gets the amount of borrowToken that could be withdrawn from the lender
-     * @return The lender liquidity
-     */
-    function _lenderMaxWithdraw()
-        internal
-        view
-        virtual
-        override
-        returns (uint256)
-    {
-        return
-            lenderVault.convertToAssets(lenderVault.maxRedeem(address(this)));
-    }
-
-    /**
      * @notice Gets net borrow APR from depositor
      * @param newAmount Simulated supply amount
      * @return Net borrow APR
@@ -380,21 +323,6 @@ abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
      */
     function balanceOfDebt() public view virtual override returns (uint256) {
         return cBorrowToken.borrowBalanceStored(address(this));
-    }
-
-    /**
-     * @notice Gets full depositor balance
-     * @return Depositor balance
-     */
-    function balanceOfLentAssets()
-        public
-        view
-        virtual
-        override
-        returns (uint256)
-    {
-        return
-            lenderVault.convertToAssets(lenderVault.balanceOf(address(this)));
     }
 
     /// ----------------- HARVEST / TOKEN CONVERSIONS ----------------- \\

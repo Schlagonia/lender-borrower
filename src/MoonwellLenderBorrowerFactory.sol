@@ -42,9 +42,9 @@ contract MoonwellLenderBorrowerFactory {
         address _asset,
         string calldata _name,
         address _borrowToken,
+        address _lenderVault,
         address _cToken,
-        address _cBorrowToken,
-        address _lenderVault
+        address _cBorrowToken
     ) external virtual returns (address) {
         // tokenized strategies available setters.
         IStrategyInterface _newStrategy = IStrategyInterface(
@@ -53,10 +53,10 @@ contract MoonwellLenderBorrowerFactory {
                     _asset,
                     _name,
                     _borrowToken,
+                    _lenderVault,
                     GOV,
                     _cToken,
-                    _cBorrowToken,
-                    _lenderVault
+                    _cBorrowToken
                 )
             )
         );
