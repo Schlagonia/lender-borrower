@@ -9,8 +9,7 @@ import {IMultiRewardDistributor} from "../interfaces/compound/IMultiRewardDistri
 import {ComptrollerI} from "../interfaces/compound/ComptrollerI.sol";
 import {IOracle} from "../interfaces/IOracle.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-
-import "forge-std/console.sol";
+import {CompoundOracleI} from "../interfaces/compound/CompoundOracleI.sol";
 
 contract MoonwellLenderBorrowerAprOracle {
     uint256 internal constant MAX_BPS = 10000;
@@ -222,8 +221,22 @@ contract MoonwellLenderBorrowerAprOracle {
         address priceFeed = IStrategyInterface(_strategy)
             .tokenInfo(_token)
             .priceFeed;
-        if (priceFeed == address(0)) return 0;
+        if (priceFeed != address(0)) {
+            return uint256(IOracle(priceFeed).latestAnswer());
+        }
 
-        return uint256(IOracle(priceFeed).latestAnswer());
+        uint256 decimalDelta = 1e18 / (10 ** ERC20(_token).decimals());
+        // Compound oracle expects the token to be the cToken
+        if (_token == IStrategyInterface(_strategy).asset()) {
+            _token = IStrategyInterface(_strategy).cToken();
+        } else if (_token == IStrategyInterface(_strategy).borrowToken()) {
+            _token = IStrategyInterface(_strategy).cBorrowToken();
+        }
+
+        return
+            CompoundOracleI(
+                ComptrollerI(IStrategyInterface(_strategy).comptroller())
+                    .oracle()
+            ).getUnderlyingPrice(_token) / (1e10 * decimalDelta);
     }
 }

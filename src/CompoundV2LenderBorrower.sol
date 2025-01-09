@@ -65,15 +65,13 @@ abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
 
         CompoundOracleI compoundOracle = CompoundOracleI(comptroller.oracle());
 
-        tokenInfo[_borrowToken] = TokenInfo({
-            priceFeed: compoundOracle.getFeed(ERC20(_borrowToken).symbol()),
-            decimals: uint96(10 ** ERC20(_borrowToken).decimals())
-        });
+        tokenInfo[_borrowToken].decimals = uint96(
+            10 ** ERC20(_borrowToken).decimals()
+        );
 
-        tokenInfo[address(asset)] = TokenInfo({
-            priceFeed: compoundOracle.getFeed(ERC20(address(asset)).symbol()),
-            decimals: uint96(10 ** ERC20(address(asset)).decimals())
-        });
+        tokenInfo[address(asset)].decimals = uint96(
+            10 ** ERC20(address(asset)).decimals()
+        );
     }
 
     function accrueInterest() public virtual {
@@ -155,6 +153,7 @@ abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
      * @param amount The amount of the borrowToken to repay.
      */
     function _repay(uint256 amount) internal virtual override {
+        if (amount == 0) return;
         require(cBorrowToken.repayBorrow(amount) == 0);
     }
 
@@ -207,15 +206,33 @@ abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
         address _token
     ) internal view virtual override returns (uint256) {
         address priceFeed = tokenInfo[_token].priceFeed;
-        return uint256(IOracle(priceFeed).latestAnswer());
+        if (priceFeed != address(0)) {
+            return uint256(IOracle(priceFeed).latestAnswer());
+        }
+
+        uint256 decimalDelta = WAD / tokenInfo[_token].decimals;
+        // Compound oracle expects the token to be the cToken
+        if (_token == address(asset)) {
+            _token = address(cToken);
+        } else if (_token == address(borrowToken)) {
+            _token = address(cBorrowToken);
+        }
+
+        return
+            CompoundOracleI(comptroller.oracle()).getUnderlyingPrice(_token) /
+            (1e10 * decimalDelta);
     }
 
     /**
      * @notice Checks if lending or borrowing is paused
      * @return True if paused, false otherwise
      */
-    function _isPaused() internal view virtual override returns (bool) {
-        return comptroller.borrowGuardianPaused(address(cToken));
+    function _isSupplyPaused() internal view virtual override returns (bool) {
+        return comptroller.mintGuardianPaused(address(cToken));
+    }
+
+    function _isBorrowPaused() internal view virtual override returns (bool) {
+        return comptroller.borrowGuardianPaused(address(cBorrowToken));
     }
 
     /**
@@ -240,12 +257,12 @@ abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
         override
         returns (uint256)
     {
-        uint256 totalCash = cToken.getCash();
-        uint256 totalBorrows = cToken.totalBorrows();
-        uint256 totalReserves = cToken.totalReserves();
-        return
-            comptroller.supplyCaps(address(cToken)) -
-            (totalCash + totalBorrows - totalReserves);
+        uint256 supplied = cToken.getCash() +
+            cToken.totalBorrows() -
+            cToken.totalReserves();
+        uint256 supplyCap = comptroller.supplyCaps(address(cToken));
+
+        return supplied > supplyCap ? 0 : supplyCap - supplied;
     }
 
     /**
@@ -259,7 +276,12 @@ abstract contract CompoundV2LenderBorrower is BaseLenderBorrower {
         override
         returns (uint256)
     {
-        return cBorrowToken.getCash();
+        uint256 borrowCap = comptroller.borrowCaps(address(cBorrowToken));
+        uint256 borrows = cBorrowToken.totalBorrows();
+
+        if (borrows >= borrowCap) return 0;
+
+        return Math.min(borrowCap - borrows, cBorrowToken.getCash());
     }
 
     /**

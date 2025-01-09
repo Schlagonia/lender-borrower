@@ -202,10 +202,7 @@ contract MoonwellLenderBorrower is CompoundV2LenderBorrower {
         address _token,
         uint256 _amount
     ) internal virtual {
-        if (ERC20(_token).allowance(address(this), _contract) < _amount) {
-            ERC20(_token).safeApprove(_contract, 0);
-            ERC20(_token).safeApprove(_contract, _amount);
-        }
+        ERC20(_token).forceApprove(_contract, _amount);
     }
 
     receive() external payable {

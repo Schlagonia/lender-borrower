@@ -141,6 +141,8 @@ interface ComptrollerI {
 
     function borrowCaps(address cToken) external view returns (uint256);
 
+    function mintGuardianPaused(address cToken) external view returns (bool);
+
     function borrowGuardianPaused(address cToken) external view returns (bool);
 
     function rewardDistributor() external view returns (address);

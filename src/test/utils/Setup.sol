@@ -8,6 +8,8 @@ import {MockStrategy} from "@periphery/test/mocks/MockStrategy.sol";
 
 import {MoonwellOracle} from "../../periphery/MoonwellOracle.sol";
 import {CErc20I} from "../../interfaces/compound/CErc20I.sol";
+import {CompoundOracleI} from "../../interfaces/compound/CompoundOracleI.sol";
+import {ComptrollerI} from "../../interfaces/compound/ComptrollerI.sol";
 import {MoonwellLenderBorrower, ERC20, IOracle, IAeroRouter} from "../../MoonwellLenderBorrower.sol";
 import {MoonwellLenderBorrowerFactory} from "../../MoonwellLenderBorrowerFactory.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
@@ -287,6 +289,20 @@ contract Setup is ExtendedTest, IEvents {
         address _asset
     ) internal view returns (uint256 price) {
         address priceFeed = strategy.tokenInfo(_asset).priceFeed;
-        return uint256(IOracle(priceFeed).latestAnswer());
+        if (priceFeed != address(0)) {
+            return uint256(IOracle(priceFeed).latestAnswer());
+        }
+
+        uint256 decimalDelta = 1e18 / (10 ** ERC20(_asset).decimals());
+        // Compound oracle expects the token to be the cToken
+        if (_asset == address(asset)) {
+            _asset = address(cToken);
+        } else if (_asset == address(borrowToken)) {
+            _asset = address(cBorrowToken);
+        }
+
+        return
+            CompoundOracleI(ComptrollerI(strategy.comptroller()).oracle())
+                .getUnderlyingPrice(_asset) / (1e10 * decimalDelta);
     }
 }

@@ -15,7 +15,7 @@ contract MoonwellLenderBorrowerFactory {
     address public keeper;
 
     /// @notice Track the deployments. asset => pool => strategy
-    mapping(address => address) public deployments;
+    mapping(address => mapping(address => address)) public deployments;
 
     constructor(
         address _management,
@@ -71,7 +71,7 @@ contract MoonwellLenderBorrowerFactory {
 
         emit NewStrategy(address(_newStrategy), _asset);
 
-        deployments[_asset] = address(_newStrategy);
+        deployments[_asset][_borrowToken] = address(_newStrategy);
         return address(_newStrategy);
     }
 
@@ -90,6 +90,7 @@ contract MoonwellLenderBorrowerFactory {
         address _strategy
     ) external view returns (bool) {
         address _asset = IStrategyInterface(_strategy).asset();
-        return deployments[_asset] == _strategy;
+        address _borrowToken = IStrategyInterface(_strategy).borrowToken();
+        return deployments[_asset][_borrowToken] == _strategy;
     }
 }

@@ -41,7 +41,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     uint256 public maxGasPriceToTend;
 
     /// Thresholds: lower limit on how much base token can be borrowed at a time.
-    uint256 internal minThreshold;
+    uint256 internal minAmountToBorrow;
 
     /// The lender vault that will be used to lend and borrow.
     IERC4626 public immutable lenderVault;
@@ -269,12 +269,10 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @return . Should return true if tend() should be called by keeper or false if not.
      */
     function _tendTrigger() internal view virtual override returns (bool) {
-        if (TokenizedStrategy.totalAssets() == 0) return false;
-
-        if (_isPaused()) return false;
-
         /// If we are in danger of being liquidated tend no matter what
         if (_isLiquidatable()) return true;
+
+        if (TokenizedStrategy.totalAssets() == 0) return false;
 
         /// We adjust position if:
         /// 1. LTV ratios are not in the HEALTHY range (either we take on more debt or repay debt)
@@ -289,6 +287,8 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         if (currentLTV > _getWarningLTV()) {
             return true;
         }
+
+        if (_isSupplyPaused() || _isBorrowPaused()) return false;
 
         uint256 targetLTV = _getTargetLTV();
 
@@ -351,7 +351,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         address /*_owner*/
     ) public view virtual override returns (uint256) {
         /// We need to be able to both supply and withdraw on deposits.
-        if (_isPaused()) return 0;
+        if (_isSupplyPaused() || _isBorrowPaused()) return 0;
 
         uint256 currentAssets = TokenizedStrategy.totalAssets();
         uint256 limit = depositLimit > currentAssets
@@ -398,11 +398,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         uint256 lenderLiquidity = _lenderMaxWithdraw();
 
         /// If we can't withdraw or supply, set liquidity = 0.
-        if (_isPaused()) {
-            liquidity = 0;
-
-            /// If the full lender is not liquid
-        } else if (lenderLiquidity < balanceOfLentAssets()) {
+        if (lenderLiquidity < balanceOfLentAssets()) {
             /// Adjust liquidity based on withdrawing the full amount of debt.
             unchecked {
                 liquidity = ((_fromUsd(
@@ -467,7 +463,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             }
 
             /// Need to have at least the min threshold
-            if (amountToBorrowBT > minThreshold) {
+            if (amountToBorrowBT > minAmountToBorrow) {
                 _borrow(amountToBorrowBT);
             }
         } else if (currentLTV > _getWarningLTV()) {
@@ -679,7 +675,13 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @notice Checks if lending or borrowing is paused
      * @return True if paused, false otherwise
      */
-    function _isPaused() internal view virtual returns (bool);
+    function _isSupplyPaused() internal view virtual returns (bool);
+
+    /**
+     * @notice Checks if borrowing is paused
+     * @return True if paused, false otherwise
+     */
+    function _isBorrowPaused() internal view virtual returns (bool);
 
     /**
      * @notice Checks if the strategy is liquidatable

@@ -19,6 +19,8 @@ interface ILenderBorrower is IBaseHealthCheck {
 
     function slippage() external view returns (uint256);
 
+    function minAmountToBorrow() external view returns (uint256);
+
     // External Functions
     function setDepositLimit(uint256 _depositLimit) external;
 
