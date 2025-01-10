@@ -26,7 +26,7 @@ contract Deploy is Script {
         vm.startBroadcast();
         
         MoonwellLenderBorrowerFactory factory = new MoonwellLenderBorrowerFactory(
-            management,
+            signer,
             management,
             keeper,
             sms,
@@ -39,14 +39,12 @@ contract Deploy is Script {
 
         console.log("Apr Oracle is ", address(oracle));
 
-        factory.setOracle(address(oracle));
-
         factory.setAddresses(management, management, keeper);
 
         address strategy = factory.newStrategy(
+            0xEdc817A28E8B93B03976FBd4a3dDBc9f7D176c22,
             0x628ff693426583D9a7FB391E54366292F509D457,
-            0xb65f1e6394AaDC3dc1AD4B8E5cF79Bbb566Dc195,
-            0xEdc817A28E8B93B03976FBd4a3dDBc9f7D176c22
+            0x7c0Fa3905B38D44C0F29150FD61f182d1e097EC2
             
         );
 

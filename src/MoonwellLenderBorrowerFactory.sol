@@ -4,10 +4,6 @@ pragma solidity ^0.8.18;
 import {MoonwellLenderBorrower, ERC20, CErc20I} from "./MoonwellLenderBorrower.sol";
 import {IStrategyInterface} from "./interfaces/IStrategyInterface.sol";
 
-interface IOracle {
-    function setOracle(address, address) external;
-}
-
 contract MoonwellLenderBorrowerFactory {
     event NewStrategy(address indexed strategy, address indexed asset);
 
@@ -17,11 +13,6 @@ contract MoonwellLenderBorrowerFactory {
     address public management;
     address public performanceFeeRecipient;
     address public keeper;
-
-    address public oracle;
-
-    address internal constant APR_ORACLE =
-        0x1981AD9F44F2EA9aDd2dC4AD7D075c102C70aF92;
 
     /// @notice Track the deployments. asset => pool => strategy
     mapping(address => mapping(address => address)) public deployments;
@@ -84,8 +75,6 @@ contract MoonwellLenderBorrowerFactory {
 
         _newStrategy.setEmergencyAdmin(emergencyAdmin);
 
-        IOracle(APR_ORACLE).setOracle(address(_newStrategy), oracle);
-
         emit NewStrategy(address(_newStrategy), _asset);
 
         deployments[_asset][_borrowToken] = address(_newStrategy);
@@ -101,11 +90,6 @@ contract MoonwellLenderBorrowerFactory {
         management = _management;
         performanceFeeRecipient = _performanceFeeRecipient;
         keeper = _keeper;
-    }
-
-    function setOracle(address _oracle) external {
-        require(msg.sender == management, "!management");
-        oracle = _oracle;
     }
 
     function isDeployedStrategy(
