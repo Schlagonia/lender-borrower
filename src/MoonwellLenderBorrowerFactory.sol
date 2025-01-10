@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.18;
 
-import {MoonwellLenderBorrower, ERC20} from "./MoonwellLenderBorrower.sol";
+import {MoonwellLenderBorrower, ERC20, CErc20I} from "./MoonwellLenderBorrower.sol";
 import {IStrategyInterface} from "./interfaces/IStrategyInterface.sol";
+
+interface IOracle {
+    function setOracle(address, address) external;
+}
 
 contract MoonwellLenderBorrowerFactory {
     event NewStrategy(address indexed strategy, address indexed asset);
@@ -13,6 +17,11 @@ contract MoonwellLenderBorrowerFactory {
     address public management;
     address public performanceFeeRecipient;
     address public keeper;
+
+    address public oracle;
+
+    address internal constant APR_ORACLE =
+        0x1981AD9F44F2EA9aDd2dC4AD7D075c102C70aF92;
 
     /// @notice Track the deployments. asset => pool => strategy
     mapping(address => mapping(address => address)) public deployments;
@@ -33,19 +42,25 @@ contract MoonwellLenderBorrowerFactory {
 
     /**
      * @notice Deploy a new Strategy.
-     * @param _asset The underlying asset for the strategy to use.
-     * @param _name The name of the strategy.
-     * @param _borrowToken The borrow token for the strategy to use.
      * @return . The address of the new strategy.
      */
     function newStrategy(
-        address _asset,
-        string calldata _name,
-        address _borrowToken,
-        address _lenderVault,
         address _cToken,
-        address _cBorrowToken
+        address _cBorrowToken,
+        address _lenderVault
     ) external virtual returns (address) {
+        address _asset = CErc20I(_cToken).underlying();
+        address _borrowToken = CErc20I(_cBorrowToken).underlying();
+        string memory _name = string(
+            abi.encodePacked(
+                "Moonwell ",
+                ERC20(_asset).symbol(),
+                " Lender ",
+                ERC20(_borrowToken).symbol(),
+                " Borrower"
+            )
+        );
+
         // tokenized strategies available setters.
         IStrategyInterface _newStrategy = IStrategyInterface(
             address(
@@ -69,6 +84,8 @@ contract MoonwellLenderBorrowerFactory {
 
         _newStrategy.setEmergencyAdmin(emergencyAdmin);
 
+        IOracle(APR_ORACLE).setOracle(address(_newStrategy), oracle);
+
         emit NewStrategy(address(_newStrategy), _asset);
 
         deployments[_asset][_borrowToken] = address(_newStrategy);
@@ -84,6 +101,11 @@ contract MoonwellLenderBorrowerFactory {
         management = _management;
         performanceFeeRecipient = _performanceFeeRecipient;
         keeper = _keeper;
+    }
+
+    function setOracle(address _oracle) external {
+        require(msg.sender == management, "!management");
+        oracle = _oracle;
     }
 
     function isDeployedStrategy(

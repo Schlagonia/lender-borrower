@@ -117,12 +117,9 @@ contract Setup is ExtendedTest, IEvents {
         IStrategyInterface _strategy = IStrategyInterface(
             address(
                 strategyFactory.newStrategy(
-                    address(asset),
-                    "Tokenized Strategy",
-                    borrowToken,
-                    address(lenderVault),
                     address(cToken),
-                    address(cBorrowToken)
+                    address(cBorrowToken),
+                    address(lenderVault)
                 )
             )
         );

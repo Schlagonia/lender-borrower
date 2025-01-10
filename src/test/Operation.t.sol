@@ -482,11 +482,11 @@ contract OperationTest is Setup {
         assertRelApproxEq(strategy.getCurrentLTV(), targetLTV, 1000);
     }
 
-    function test_operation_morphoVault(uint256 _amount) public {
+    function test_operation_realVault(uint256 _amount) public {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
 
         lenderVault = IStrategyInterface(
-            0xb65f1e6394AaDC3dc1AD4B8E5cF79Bbb566Dc195
+            0xa0E430870c4604CcfC7B38Ca7845B1FF653D0ff1
         );
 
         strategy = IStrategyInterface(setUpStrategy());

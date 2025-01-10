@@ -308,7 +308,10 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             }
 
             /// Convert to borrowToken
-            uint256 amountToBorrowBT = _fromUsd(amountToBorrowUsd, borrowToken);
+            uint256 amountToBorrowBT = Math.min(
+                _fromUsd(amountToBorrowUsd, borrowToken),
+                Math.min(_lenderMaxDeposit(), _maxBorrowAmount())
+            );
 
             if (amountToBorrowBT == 0) return false;
 
@@ -450,7 +453,10 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             }
 
             /// convert to borrowToken
-            uint256 amountToBorrowBT = _fromUsd(amountToBorrowUsd, borrowToken);
+            uint256 amountToBorrowBT = Math.min(
+                _fromUsd(amountToBorrowUsd, borrowToken),
+                Math.min(_lenderMaxDeposit(), _maxBorrowAmount())
+            );
 
             /// We want to make sure that the reward apr > borrow apr so we don't report a loss
             /// Borrowing will cause the borrow apr to go up and the rewards apr to go down
