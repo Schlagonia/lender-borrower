@@ -2,6 +2,8 @@
 pragma solidity ^0.8.18;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {BaseHealthCheck, ERC20} from "@periphery/Bases/HealthCheck/BaseHealthCheck.sol";
 
@@ -11,33 +13,38 @@ import {BaseHealthCheck, ERC20} from "@periphery/Bases/HealthCheck/BaseHealthChe
 abstract contract BaseLenderBorrower is BaseHealthCheck {
     using SafeERC20 for ERC20;
 
+    uint256 internal constant WAD = 1e18;
+
     /// The token we will be borrowing/supplying.
     address public immutable borrowToken;
-
-    /// @notice Deposit limit for the strategy.
-    uint256 public depositLimit;
 
     /// If set to true, the strategy will not try to repay debt by selling rewards or asset.
     bool public leaveDebtBehind;
 
-    /// @notice Target Loan-To-Value (LTV) multiplier.
+    /// @notice Target Loan-To-Value (LTV) multiplier in Basis Points
     /// @dev Represents the ratio up to which we will borrow, relative to the liquidation threshold.
-    /// LTV is the debt-to-collateral ratio. Default is set to 80% of the liquidation LTV.
+    /// LTV is the debt-to-collateral ratio. Default is set to 70% of the liquidation LTV.
     uint16 public targetLTVMultiplier;
 
-    /// @notice Warning Loan-To-Value (LTV) multiplier
+    /// @notice Warning Loan-To-Value (LTV) multiplier in Basis Points
     /// @dev Represents the ratio at which we will start repaying the debt to avoid liquidation
-    /// Default is set to 90% of the liquidation LTV
-    uint16 public warningLTVMultiplier; // 90% of liquidation LTV
+    /// Default is set to 80% of the liquidation LTV
+    uint16 public warningLTVMultiplier; // 80% of liquidation LTV
 
     /// @notice Slippage tolerance (in basis points) for swaps
     uint64 public slippage;
+
+    /// @notice Deposit limit for the strategy.
+    uint256 public depositLimit;
 
     /// The max the base fee (in gwei) will be for a tend
     uint256 public maxGasPriceToTend;
 
     /// Thresholds: lower limit on how much base token can be borrowed at a time.
-    uint256 internal minThreshold;
+    uint256 internal minAmountToBorrow;
+
+    /// The lender vault that will be used to lend and borrow.
+    IERC4626 public immutable lenderVault;
 
     /**
      * @param _asset The address of the asset we are lending/borrowing.
@@ -47,7 +54,8 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     constructor(
         address _asset,
         string memory _name,
-        address _borrowToken
+        address _borrowToken,
+        address _lenderVault
     ) BaseHealthCheck(_asset, _name) {
         borrowToken = _borrowToken;
 
@@ -58,6 +66,13 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         leaveDebtBehind = false;
         maxGasPriceToTend = 200 * 1e9;
         slippage = 500;
+
+        // Allow for address(0) for versions that don't use 4626 vault.
+        if (_lenderVault != address(0)) {
+            lenderVault = IERC4626(_lenderVault);
+            require(lenderVault.asset() == _borrowToken, "!lenderVault");
+            ERC20(_borrowToken).safeApprove(_lenderVault, type(uint256).max);
+        }
     }
 
     /// ----------------- SETTERS -----------------
@@ -254,12 +269,10 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @return . Should return true if tend() should be called by keeper or false if not.
      */
     function _tendTrigger() internal view virtual override returns (bool) {
-        if (TokenizedStrategy.totalAssets() == 0) return false;
-
-        if (_isPaused()) return false;
-
         /// If we are in danger of being liquidated tend no matter what
         if (_isLiquidatable()) return true;
+
+        if (TokenizedStrategy.totalAssets() == 0) return false;
 
         /// We adjust position if:
         /// 1. LTV ratios are not in the HEALTHY range (either we take on more debt or repay debt)
@@ -267,13 +280,15 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         uint256 collateralInUsd = _toUsd(balanceOfCollateral(), address(asset));
         uint256 debtInUsd = _toUsd(balanceOfDebt(), borrowToken);
         uint256 currentLTV = collateralInUsd > 0
-            ? (debtInUsd * 1e18) / collateralInUsd
+            ? (debtInUsd * WAD) / collateralInUsd
             : 0;
 
         /// Check if we are over our warning LTV
         if (currentLTV > _getWarningLTV()) {
             return true;
         }
+
+        if (_isSupplyPaused() || _isBorrowPaused()) return false;
 
         uint256 targetLTV = _getTargetLTV();
 
@@ -285,7 +300,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             /// IF we are lower than our target. (we need a 10% (1000bps) difference)
         } else if ((currentLTV < targetLTV && targetLTV - currentLTV > 1e17)) {
             /// Make sure the increase in debt would keep borrowing costs healthy.
-            uint256 targetDebtUsd = (collateralInUsd * targetLTV) / 1e18;
+            uint256 targetDebtUsd = (collateralInUsd * targetLTV) / WAD;
 
             uint256 amountToBorrowUsd;
             unchecked {
@@ -293,7 +308,10 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             }
 
             /// Convert to borrowToken
-            uint256 amountToBorrowBT = _fromUsd(amountToBorrowUsd, borrowToken);
+            uint256 amountToBorrowBT = Math.min(
+                _fromUsd(amountToBorrowUsd, borrowToken),
+                Math.min(_lenderMaxDeposit(), _maxBorrowAmount())
+            );
 
             if (amountToBorrowBT == 0) return false;
 
@@ -336,7 +354,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         address /*_owner*/
     ) public view virtual override returns (uint256) {
         /// We need to be able to both supply and withdraw on deposits.
-        if (_isPaused()) return 0;
+        if (_isSupplyPaused() || _isBorrowPaused()) return 0;
 
         uint256 currentAssets = TokenizedStrategy.totalAssets();
         uint256 limit = depositLimit > currentAssets
@@ -351,7 +369,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             Math.min(
                 maxDeposit,
                 _fromUsd(
-                    (_toUsd(maxBorrow, borrowToken) * 1e18) / _getTargetLTV(),
+                    (_toUsd(maxBorrow, borrowToken) * WAD) / _getTargetLTV(),
                     address(asset)
                 )
             );
@@ -383,17 +401,13 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         uint256 lenderLiquidity = _lenderMaxWithdraw();
 
         /// If we can't withdraw or supply, set liquidity = 0.
-        if (_isPaused()) {
-            liquidity = 0;
-
-            /// If the full lender is not liquid
-        } else if (lenderLiquidity < balanceOfLentAssets()) {
+        if (lenderLiquidity < balanceOfLentAssets()) {
             /// Adjust liquidity based on withdrawing the full amount of debt.
             unchecked {
                 liquidity = ((_fromUsd(
                     _toUsd(lenderLiquidity, borrowToken),
                     address(asset)
-                ) * 1e18) / _getTargetLTV());
+                ) * WAD) / _getTargetLTV());
             }
         }
 
@@ -417,21 +431,21 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         /// Convert debt to USD
         uint256 debtInUsd = _toUsd(balanceOfDebt(), borrowToken);
 
-        /// LTV numbers are always in 1e18
+        /// LTV numbers are always in WAD
         uint256 currentLTV = collateralInUsd > 0
-            ? (debtInUsd * 1e18) / collateralInUsd
+            ? (debtInUsd * WAD) / collateralInUsd
             : 0;
-        uint256 targetLTV = _getTargetLTV(); // 80% under default liquidation Threshold
+        uint256 targetLTV = _getTargetLTV(); // 70% under default liquidation Threshold
 
         /// decide in which range we are and act accordingly:
-        /// SUBOPTIMAL(borrow) (e.g. from 0 to 80% liqLTV)
-        /// HEALTHY(do nothing) (e.g. from 80% to 90% liqLTV)
-        /// UNHEALTHY(repay) (e.g. from 90% to 100% liqLTV)
+        /// SUBOPTIMAL(borrow) (e.g. from 0 to 70% liqLTV)
+        /// HEALTHY(do nothing) (e.g. from 70% to 80% liqLTV)
+        /// UNHEALTHY(repay) (e.g. from 80% to 100% liqLTV)
         if (targetLTV > currentLTV) {
             /// SUBOPTIMAL RATIO: our current Loan-to-Value is lower than what we want
 
             /// we need to take on more debt
-            uint256 targetDebtUsd = (collateralInUsd * targetLTV) / 1e18;
+            uint256 targetDebtUsd = (collateralInUsd * targetLTV) / WAD;
 
             uint256 amountToBorrowUsd;
             unchecked {
@@ -439,7 +453,10 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             }
 
             /// convert to borrowToken
-            uint256 amountToBorrowBT = _fromUsd(amountToBorrowUsd, borrowToken);
+            uint256 amountToBorrowBT = Math.min(
+                _fromUsd(amountToBorrowUsd, borrowToken),
+                Math.min(_lenderMaxDeposit(), _maxBorrowAmount())
+            );
 
             /// We want to make sure that the reward apr > borrow apr so we don't report a loss
             /// Borrowing will cause the borrow apr to go up and the rewards apr to go down
@@ -452,13 +469,13 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             }
 
             /// Need to have at least the min threshold
-            if (balanceOfDebt() + amountToBorrowBT > minThreshold) {
+            if (amountToBorrowBT > minAmountToBorrow) {
                 _borrow(amountToBorrowBT);
             }
         } else if (currentLTV > _getWarningLTV()) {
             /// UNHEALTHY RATIO
             /// we repay debt to set it to targetLTV
-            uint256 targetDebtUsd = (targetLTV * collateralInUsd) / 1e18;
+            uint256 targetDebtUsd = (targetLTV * collateralInUsd) / WAD;
 
             /// Withdraw the difference from the Depositor
             _withdrawFromLender(
@@ -537,7 +554,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
 
         /// What we need to maintain a health LTV
         uint256 neededCollateral = _fromUsd(
-            (debtInUsd * 1e18) / _getTargetLTV(),
+            (debtInUsd * WAD) / _getTargetLTV(),
             address(asset)
         );
 
@@ -569,7 +586,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         /// We check if the collateral that we are withdrawing leaves us in a risky range, we then take action
         uint256 newCollateralUsd = _toUsd(collateral - amount, address(asset));
 
-        uint256 targetDebtUsd = (newCollateralUsd * _getTargetLTV()) / 1e18;
+        uint256 targetDebtUsd = (newCollateralUsd * _getTargetLTV()) / WAD;
         uint256 targetDebt = _fromUsd(targetDebtUsd, borrowToken);
         uint256 currentDebt = balanceOfDebt();
         /// Repay only if our target debt is lower than our current debt
@@ -632,13 +649,22 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @notice Lends a specified amount of `borrowToken`.
      * @param amount The amount of the borrowToken to lend.
      */
-    function _lendBorrowToken(uint256 amount) internal virtual;
+    function _lendBorrowToken(uint256 amount) internal virtual {
+        lenderVault.deposit(amount, address(this));
+    }
 
     /**
      * @notice Withdraws a specified amount of `borrowToken`.
      * @param amount The amount of the borrowToken to withdraw.
      */
-    function _withdrawBorrowToken(uint256 amount) internal virtual;
+    function _withdrawBorrowToken(uint256 amount) internal virtual {
+        // Use previewWithdraw to round up.
+        uint256 shares = Math.min(
+            lenderVault.previewWithdraw(amount),
+            lenderVault.balanceOf(address(this))
+        );
+        lenderVault.redeem(shares, address(this), address(this));
+    }
 
     // ----------------- INTERNAL VIEW FUNCTIONS ----------------- \\
 
@@ -655,7 +681,13 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @notice Checks if lending or borrowing is paused
      * @return True if paused, false otherwise
      */
-    function _isPaused() internal view virtual returns (bool);
+    function _isSupplyPaused() internal view virtual returns (bool);
+
+    /**
+     * @notice Checks if borrowing is paused
+     * @return True if paused, false otherwise
+     */
+    function _isBorrowPaused() internal view virtual returns (bool);
 
     /**
      * @notice Checks if the strategy is liquidatable
@@ -679,13 +711,18 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @notice Gets the max amount of `borrowToken` that could be deposited to the lender
      * @return The max deposit amount
      */
-    function _lenderMaxDeposit() internal view virtual returns (uint256);
+    function _lenderMaxDeposit() internal view virtual returns (uint256) {
+        return lenderVault.maxDeposit(address(this));
+    }
 
     /**
      * @notice Gets the amount of borrowToken that could be withdrawn from the lender
      * @return The lender liquidity
      */
-    function _lenderMaxWithdraw() internal view virtual returns (uint256);
+    function _lenderMaxWithdraw() internal view virtual returns (uint256) {
+        return
+            lenderVault.convertToAssets(lenderVault.maxRedeem(address(this)));
+    }
 
     /**
      * @notice Gets net borrow APR from depositor
@@ -731,7 +768,10 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @notice Gets full depositor balance
      * @return Depositor balance
      */
-    function balanceOfLentAssets() public view virtual returns (uint256);
+    function balanceOfLentAssets() public view virtual returns (uint256) {
+        return
+            lenderVault.convertToAssets(lenderVault.balanceOf(address(this)));
+    }
 
     /**
      * @notice Gets available balance of asset token
@@ -794,7 +834,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
 
         unchecked {
             return
-                (_toUsd(balanceOfDebt(), borrowToken) * 1e18) /
+                (_toUsd(balanceOfDebt(), borrowToken) * WAD) /
                 _toUsd(collateral, address(asset));
         }
     }

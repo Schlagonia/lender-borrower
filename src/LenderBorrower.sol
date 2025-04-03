@@ -13,8 +13,9 @@ abstract contract LenderBorrower is BaseLenderBorrower {
         address _asset,
         string memory _name,
         address _borrowToken,
+        address _lenderVault,
         address _gov
-    ) BaseLenderBorrower(_asset, _name, _borrowToken) {
+    ) BaseLenderBorrower(_asset, _name, _borrowToken, _lenderVault) {
         GOV = _gov;
     }
 
@@ -44,18 +45,6 @@ abstract contract LenderBorrower is BaseLenderBorrower {
      */
     function _repay(uint256 amount) internal virtual override;
 
-    /**
-     * @notice Lends a specified amount of `borrowToken`.
-     * @param amount The amount of the borrowToken to lend.
-     */
-    function _lendBorrowToken(uint256 amount) internal virtual override;
-
-    /**
-     * @notice Withdraws a specified amount of `borrowToken`.
-     * @param amount The amount of the borrowToken to withdraw.
-     */
-    function _withdrawBorrowToken(uint256 amount) internal virtual override;
-
     // ----------------- INTERNAL VIEW FUNCTIONS ----------------- \\
 
     /**
@@ -71,7 +60,13 @@ abstract contract LenderBorrower is BaseLenderBorrower {
      * @notice Checks if lending or borrowing is paused
      * @return True if paused, false otherwise
      */
-    function _isPaused() internal view virtual override returns (bool);
+    function _isSupplyPaused() internal view virtual override returns (bool);
+
+    /**
+     * @notice Checks if borrowing is paused
+     * @return True if paused, false otherwise
+     */
+    function _isBorrowPaused() internal view virtual override returns (bool);
 
     /**
      * @notice Checks if the strategy is liquidatable
@@ -95,28 +90,6 @@ abstract contract LenderBorrower is BaseLenderBorrower {
      * @return The max borrow amount
      */
     function _maxBorrowAmount()
-        internal
-        view
-        virtual
-        override
-        returns (uint256);
-
-    /**
-     * @notice Gets the max amount of `borrowToken` that could be deposited to the lender
-     * @return The max deposit amount
-     */
-    function _lenderMaxDeposit()
-        internal
-        view
-        virtual
-        override
-        returns (uint256);
-
-    /**
-     * @notice Gets the amount of borrowToken that could be withdrawn from the lender
-     * @return The lender liquidity
-     */
-    function _lenderMaxWithdraw()
         internal
         view
         virtual
@@ -168,17 +141,6 @@ abstract contract LenderBorrower is BaseLenderBorrower {
      * @return Borrow balance
      */
     function balanceOfDebt() public view virtual override returns (uint256);
-
-    /**
-     * @notice Gets full depositor balance
-     * @return Depositor balance
-     */
-    function balanceOfLentAssets()
-        public
-        view
-        virtual
-        override
-        returns (uint256);
 
     /// ----------------- HARVEST / TOKEN CONVERSIONS ----------------- \\
 
