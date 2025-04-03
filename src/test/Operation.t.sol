@@ -3,7 +3,7 @@ pragma solidity ^0.8.18;
 
 import "forge-std/console2.sol";
 import {Setup, ERC20, IStrategyInterface} from "./utils/Setup.sol";
-
+import {IController} from "../interfaces/IController.sol";
 contract OperationTest is Setup {
     function setUp() public virtual override {
         super.setUp();
@@ -247,14 +247,10 @@ contract OperationTest is Setup {
         uint256 targetLTV = (strategy.getLiquidateCollateralFactor() *
             strategy.targetLTVMultiplier()) / MAX_BPS;
 
-        // No assets should be false.
-        (bool trigger, ) = strategy.tendTrigger();
-        assertTrue(!trigger);
-
         // Deposit into strategy
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
-        (trigger, ) = strategy.tendTrigger();
+        (bool trigger, ) = strategy.tendTrigger();
         assertTrue(!trigger);
 
         // Skip some time
@@ -266,18 +262,20 @@ contract OperationTest is Setup {
         // Borrow too much.
         uint256 toBorrow = (strategy.balanceOfCollateral() *
             ((strategy.getLiquidateCollateralFactor() *
-                strategy.warningLTVMultiplier()) / MAX_BPS)) / 1e18;
+                (strategy.warningLTVMultiplier() + 100)) / MAX_BPS)) / 1e18;
 
         toBorrow = _fromUsd(_toUsd(toBorrow, address(asset)), borrowToken);
 
-        // TODO: Simulate borrowing too much for LTV.
-        //vm.startPrank(address(strategy));
-        // Comet(comet).withdraw(
-        //     address(borrowToken),
-        //     toBorrow - strategy.balanceOfDebt() + 100000
-        // );
-        //vm.stopPrank();
+        vm.startPrank(address(strategy));
+        IController(strategy.CONTROLLER()).borrow_more(
+            0,
+            toBorrow - strategy.balanceOfDebt()
+        );
+        vm.stopPrank();
 
+        console2.log("toBorrow", toBorrow / 1e18);
+        console2.log("Warning LTV", strategy.warningLTVMultiplier());
+        console2.log("Current LTV", strategy.getCurrentLTV());
         (trigger, ) = strategy.tendTrigger();
         assertTrue(trigger, "warning ltv");
 

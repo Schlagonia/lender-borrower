@@ -10,4 +10,10 @@ interface IStrategyInterface is IStrategy, ILenderBorrower {
     function GOV() external view returns (address);
 
     function sweep(address _token) external;
+
+    function lenderVault() external view returns (address);
+
+    function CONTROLLER() external view returns (address);
+
+    function AMM() external view returns (address);
 }

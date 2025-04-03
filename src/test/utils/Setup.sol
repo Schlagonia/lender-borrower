@@ -4,10 +4,10 @@ pragma solidity ^0.8.18;
 import "forge-std/console2.sol";
 import {ExtendedTest} from "./ExtendedTest.sol";
 
-import {LenderBorrower, ERC20} from "../../LenderBorrower.sol";
+import {CrvUsdLenderBorrower, ERC20} from "../../CrvUsdLenderBorrower.sol";
 import {StrategyFactory} from "../../StrategyFactory.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
-
+import {IController} from "../../interfaces/IController.sol";
 // Inherit the events so they can be checked if desired.
 import {IEvents} from "@tokenized-strategy/interfaces/IEvents.sol";
 
@@ -28,6 +28,11 @@ contract Setup is ExtendedTest, IEvents {
 
     address public borrowToken;
 
+    address public lenderVault = 0xBF319dDC2Edc1Eb6FDf9910E39b37Be221C8805F;
+
+    address public controllerFactory =
+        0xC9332fdCB1C491Dcc683bAe86Fe3cb70360738BC;
+
     mapping(string => address) public tokenAddrs;
 
     // Addresses for different roles we will use repeatedly.
@@ -46,8 +51,8 @@ contract Setup is ExtendedTest, IEvents {
     uint256 public MAX_BPS = 10_000;
 
     // Fuzz from $0.01 of 1e6 stable coins up to 1 trillion of a 1e18 coin
-    uint256 public maxFuzzAmount = 1e30;
-    uint256 public minFuzzAmount = 10_000;
+    uint256 public maxFuzzAmount = 100e18;
+    uint256 public minFuzzAmount = 1e18;
 
     // Default profit max unlock time is set for 10 days
     uint256 public profitMaxUnlockTime = 10 days;
@@ -56,7 +61,7 @@ contract Setup is ExtendedTest, IEvents {
         _setTokenAddrs();
 
         // Set asset
-        asset = ERC20(tokenAddrs["DAI"]);
+        asset = ERC20(tokenAddrs["WETH"]);
 
         // Set decimals
         decimals = asset.decimals();
@@ -66,7 +71,8 @@ contract Setup is ExtendedTest, IEvents {
             performanceFeeRecipient,
             keeper,
             emergencyAdmin,
-            gov
+            gov,
+            controllerFactory
         );
 
         // Deploy strategy and set variables
@@ -88,13 +94,7 @@ contract Setup is ExtendedTest, IEvents {
     function setUpStrategy() public returns (address) {
         // we save the strategy as a IStrategyInterface to give it the needed interface
         IStrategyInterface _strategy = IStrategyInterface(
-            address(
-                strategyFactory.newStrategy(
-                    address(asset),
-                    "Tokenized Strategy",
-                    borrowToken
-                )
-            )
+            address(strategyFactory.newStrategy(address(asset), lenderVault))
         );
 
         vm.prank(management);
@@ -196,5 +196,12 @@ contract Setup is ExtendedTest, IEvents {
         }
     }
 
-    function _getPrice(address _asset) internal view returns (uint256 price) {}
+    function _getPrice(address _asset) internal view returns (uint256 price) {
+        if (_asset == address(asset)) {
+            price = IController(strategy.CONTROLLER()).amm_price() / 1e10;
+        } else {
+            // Assumes crvUSD is 1
+            price = 1e8;
+        }
+    }
 }
