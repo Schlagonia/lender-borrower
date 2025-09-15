@@ -663,7 +663,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             lenderVault.previewWithdraw(amount),
             lenderVault.balanceOf(address(this))
         );
-        lenderVault.redeem(shares, address(this), address(this));
+        if (shares > 0) lenderVault.redeem(shares, address(this), address(this));
     }
 
     // ----------------- INTERNAL VIEW FUNCTIONS ----------------- \\
