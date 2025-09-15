@@ -663,7 +663,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             lenderVault.previewWithdraw(amount),
             lenderVault.balanceOf(address(this))
         );
-        if (shares > 0) lenderVault.redeem(shares, address(this), address(this));
+        lenderVault.redeem(shares, address(this), address(this));
     }
 
     // ----------------- INTERNAL VIEW FUNCTIONS ----------------- \\
@@ -978,9 +978,8 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @param _amount The amount of asset to attempt to free.
      */
     function _emergencyWithdraw(uint256 _amount) internal virtual override {
-        if (_amount > 0) {
-            _withdrawBorrowToken(Math.min(_amount, _lenderMaxWithdraw()));
-        }
+        _amount = Math.min(_amount, _lenderMaxWithdraw());
+        if (_amount > 0) _withdrawBorrowToken(_amount);
 
         // Repay everything we can.
         _repayTokenDebt();
