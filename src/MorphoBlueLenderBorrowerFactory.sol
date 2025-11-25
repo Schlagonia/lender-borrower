@@ -1,64 +1,72 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.18;
 
-import {LenderBorrower, ERC20} from "./LenderBorrower.sol";
+import {MorphoBlueLenderBorrower} from "./MorphoBlueLenderBorrower.sol";
 import {IStrategyInterface} from "./interfaces/IStrategyInterface.sol";
+import {Id} from "./interfaces/morpho/IMorpho.sol";
 
-contract StrategyFactory {
-    event NewStrategy(address indexed strategy, address indexed asset);
+contract MorphoBlueLenderBorrowerFactory {
+    event NewStrategy(address indexed strategy, Id indexed marketId);
 
     address public immutable GOV;
     address public immutable emergencyAdmin;
+    address public immutable morpho;
 
     address public management;
     address public performanceFeeRecipient;
     address public keeper;
 
-    /// @notice Track the deployments. asset => pool => strategy
-    mapping(address => address) public deployments;
+    /// @notice Track deployments by market id.
+    mapping(Id => address) public deployments;
 
     constructor(
         address _management,
         address _performanceFeeRecipient,
         address _keeper,
         address _emergencyAdmin,
-        address _gov
+        address _gov,
+        address _morpho
     ) {
         management = _management;
         performanceFeeRecipient = _performanceFeeRecipient;
         keeper = _keeper;
         emergencyAdmin = _emergencyAdmin;
         GOV = _gov;
+        morpho = _morpho;
     }
 
-    /**
-     * @notice Deploy a new Strategy.
-     * @param _asset The underlying asset for the strategy to use.
-     * @param _name The name of the strategy.
-     * @param _borrowToken The borrow token for the strategy to use.
-     * @return . The address of the new strategy.
-     */
     function newStrategy(
         address _asset,
         string calldata _name,
-        address _borrowToken
+        address _borrowToken,
+        address _lenderVault,
+        Id _marketId,
+        address _assetUsdOracle,
+        address _borrowUsdOracle
     ) external virtual returns (address) {
-        // tokenized strategies available setters.
         IStrategyInterface _newStrategy = IStrategyInterface(
-            address(0) //new LenderBorrower(_asset, _name, _borrowToken, GOV))
+            address(
+                new MorphoBlueLenderBorrower(
+                    _asset,
+                    _name,
+                    _borrowToken,
+                    _lenderVault,
+                    GOV,
+                    morpho,
+                    _marketId,
+                    _assetUsdOracle,
+                    _borrowUsdOracle
+                )
+            )
         );
 
         _newStrategy.setPerformanceFeeRecipient(performanceFeeRecipient);
-
         _newStrategy.setKeeper(keeper);
-
         _newStrategy.setPendingManagement(management);
-
         _newStrategy.setEmergencyAdmin(emergencyAdmin);
 
-        emit NewStrategy(address(_newStrategy), _asset);
-
-        deployments[_asset] = address(_newStrategy);
+        emit NewStrategy(address(_newStrategy), _marketId);
+        deployments[_marketId] = address(_newStrategy);
         return address(_newStrategy);
     }
 
@@ -76,7 +84,7 @@ contract StrategyFactory {
     function isDeployedStrategy(
         address _strategy
     ) external view returns (bool) {
-        address _asset = IStrategyInterface(_strategy).asset();
-        return deployments[_asset] == _strategy;
+        Id id = MorphoBlueLenderBorrower(_strategy).marketId();
+        return deployments[id] == _strategy;
     }
 }
