@@ -3,6 +3,7 @@ pragma solidity ^0.8.18;
 
 import "forge-std/console2.sol";
 import {Setup, ERC20} from "./utils/Setup.sol";
+import {IStrategyInterface} from "../interfaces/IStrategyInterface.sol";
 
 contract OperationTest is Setup {
     function setUp() public virtual override {
@@ -58,6 +59,36 @@ contract OperationTest is Setup {
         assertGt(strategy.totalAssets(), 0, "no assets");
         assertGe(profit + strategy.totalAssets(), strategy.totalAssets());
         assertGe(loss + strategy.totalAssets(), strategy.totalAssets() - loss);
+    }
+
+    function test_profitableReport(uint256 _amount) public {
+        _amount = bound(_amount, minFuzzAmount, maxFuzzAmount / 5);
+
+        // Configure UniV3 fees for USDC/WETH/WBTC (0.3%).
+        address uniBase = IStrategyInterface(address(strategy)).base();
+        vm.startPrank(management);
+        IStrategyInterface(address(strategy)).setUniFees(
+            borrowToken,
+            uniBase,
+            3000
+        );
+        IStrategyInterface(address(strategy)).setUniFees(
+            uniBase,
+            address(asset),
+            3000
+        );
+        vm.stopPrank();
+
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        // Let some time pass to accrue interest and enable profit.
+        skip(2 days);
+
+        vm.prank(keeper);
+        (uint256 profit, uint256 loss) = strategy.report();
+
+        assertGe(strategy.totalAssets(), _amount / 2, "assets too low");
+        assertGe(profit + strategy.totalAssets(), strategy.totalAssets() - loss);
     }
 
     function test_manualRepayReducesDebt(uint256 _amount) public {
