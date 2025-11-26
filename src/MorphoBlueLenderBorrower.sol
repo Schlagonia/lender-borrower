@@ -13,16 +13,16 @@ import {IIrm} from "./interfaces/morpho/IIrm.sol";
 import {MarketParamsLib} from "./libraries/morpho/MarketParamsLib.sol";
 import {MorphoBalancesLib} from "./libraries/morpho/periphery/MorphoBalancesLib.sol";
 import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
-import {AuctionSwapper} from "@periphery/swappers/AuctionSwapper.sol";
+import {IMerklDistributor} from "./interfaces/IMerkleDistributor.sol";
 
-contract MorphoBlueLenderBorrower is
-    BaseLenderBorrower,
-    UniswapV3Swapper,
-    AuctionSwapper
-{
+contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
     using SafeERC20 for ERC20;
     using MarketParamsLib for MarketParams;
     using MorphoBalancesLib for IMorpho;
+
+    /// @notice The Merkl Distributor contract for claiming rewards
+    IMerklDistributor public constant MERKL_DISTRIBUTOR =
+        IMerklDistributor(0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae);
 
     uint256 internal constant ORACLE_PRICE_SCALE = 1e36;
 
@@ -35,6 +35,9 @@ contract MorphoBlueLenderBorrower is
     /// @notice Optional USD price feeds (1e8) for collateral and borrow token.
     address public assetUsdOracle;
     address public borrowUsdOracle;
+
+    /// @notice Optional external reward APR oracle.
+    address public rewardAprOracle;
 
     constructor(
         address _asset,
@@ -127,15 +130,11 @@ contract MorphoBlueLenderBorrower is
         Position memory p = morpho.position(marketId, address(this));
         if (p.borrowShares == 0) return false;
 
-        uint256 borrowed = morpho.expectedBorrowAssets(
-            marketParams,
-            address(this)
-        );
         uint256 collateralValue = (uint256(p.collateral) *
             IOracle(marketParams.oracle).price()) / ORACLE_PRICE_SCALE;
         uint256 maxBorrow = (collateralValue * marketParams.lltv) / WAD;
 
-        return borrowed > maxBorrow;
+        return balanceOfDebt() > maxBorrow;
     }
 
     function _maxCollateralDeposit()
@@ -166,12 +165,7 @@ contract MorphoBlueLenderBorrower is
     function getNetBorrowApr(
         uint256 /* newAmount */
     ) public view virtual override returns (uint256) {
-        Market memory m = morpho.market(marketId);
-        uint256 ratePerSecond = IIrm(marketParams.irm).borrowRateView(
-            marketParams,
-            m
-        );
-        return ratePerSecond * 365 days;
+        return 1;
     }
 
     function getNetRewardApr(
@@ -203,16 +197,7 @@ contract MorphoBlueLenderBorrower is
     }
 
     function balanceOfDebt() public view virtual override returns (uint256) {
-        Position memory p = morpho.position(marketId, address(this));
-        if (p.borrowShares == 0) return 0;
-        Market memory m = morpho.market(marketId);
-        if (m.totalBorrowShares == 0) return 0;
-        return
-            Math.mulDiv(
-                uint256(p.borrowShares),
-                m.totalBorrowAssets,
-                m.totalBorrowShares
-            );
+        return morpho.expectedBorrowAssets(marketParams, address(this));
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -258,11 +243,20 @@ contract MorphoBlueLenderBorrower is
         );
     }
 
-    // Override to not allow permissionless kicks
-    function kickAuction(
-        address _token
-    ) external virtual override onlyKeepers returns (uint256) {
-        return _kickAuction(_token);
+    /**
+     * @notice Claims rewards from Merkl distributor
+     * @param users Recipients of tokens
+     * @param tokens ERC20 tokens being claimed
+     * @param amounts Amounts of tokens that will be sent to the corresponding users
+     * @param proofs Array of Merkle proofs verifying the claims
+     */
+    function claim(
+        address[] calldata users,
+        address[] calldata tokens,
+        uint256[] calldata amounts,
+        bytes32[][] calldata proofs
+    ) external {
+        MERKL_DISTRIBUTOR.claim(users, tokens, amounts, proofs);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -287,14 +281,6 @@ contract MorphoBlueLenderBorrower is
         _setMinAmountToSell(_minAmountToSell);
     }
 
-    function setAuction(address _auction) external onlyManagement {
-        _setAuction(_auction);
-    }
-
-    function setUseAuction(bool _useAuction) external onlyManagement {
-        _setUseAuction(_useAuction);
-    }
-
     function setUsdOracles(
         address _assetUsdOracle,
         address _borrowUsdOracle
@@ -307,12 +293,16 @@ contract MorphoBlueLenderBorrower is
     /// @param _token The ERC20 token to sweep
     function sweep(address _token) external {
         require(msg.sender == GOV, "!gov");
-        require(_token != address(asset), "!asset");
+        require(
+            _token != address(asset) &&
+                _token != address(borrowToken) &&
+                _token != address(lenderVault),
+            "!sweep"
+        );
         ERC20(_token).safeTransfer(GOV, ERC20(_token).balanceOf(address(this)));
     }
 
     function _readUsdOracle(address _oracle) internal view returns (uint256) {
-        require(_oracle != address(0), "oracle not set");
         int256 answer = IChainlinkAggregator(_oracle).latestAnswer();
         require(answer > 0, "bad oracle");
         return uint256(answer);

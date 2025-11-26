@@ -9,12 +9,12 @@ contract MorphoBlueLenderBorrowerFactory {
     event NewStrategy(address indexed strategy, Id indexed marketId);
 
     address public immutable GOV;
-    address public immutable emergencyAdmin;
     address public immutable morpho;
 
     address public management;
     address public performanceFeeRecipient;
     address public keeper;
+    address public emergencyAdmin;
 
     /// @notice Track deployments by market id.
     mapping(Id => address) public deployments;
@@ -73,12 +73,14 @@ contract MorphoBlueLenderBorrowerFactory {
     function setAddresses(
         address _management,
         address _performanceFeeRecipient,
-        address _keeper
+        address _keeper,
+        address _emergencyAdmin
     ) external {
         require(msg.sender == management, "!management");
         management = _management;
         performanceFeeRecipient = _performanceFeeRecipient;
         keeper = _keeper;
+        emergencyAdmin = _emergencyAdmin;
     }
 
     function isDeployedStrategy(
