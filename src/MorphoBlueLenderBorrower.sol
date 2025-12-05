@@ -11,7 +11,8 @@ import {IChainlinkAggregator} from "./interfaces/IChainlinkAggregator.sol";
 import {IOracle} from "./interfaces/morpho/IOracle.sol";
 import {IIrm} from "./interfaces/morpho/IIrm.sol";
 import {MarketParamsLib} from "./libraries/morpho/MarketParamsLib.sol";
-import {MorphoBalancesLib} from "./libraries/morpho/periphery/MorphoBalancesLib.sol";
+import {MorphoBalancesLib, MorphoLib} from "./libraries/morpho/periphery/MorphoBalancesLib.sol";
+import {SharesMathLib} from "./libraries/morpho/SharesMathLib.sol";
 import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
 import {IMerklDistributor} from "./interfaces/IMerkleDistributor.sol";
 
@@ -19,6 +20,7 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
     using SafeERC20 for ERC20;
     using MarketParamsLib for MarketParams;
     using MorphoBalancesLib for IMorpho;
+    using MorphoLib for IMorpho;
 
     /// @notice The Merkl Distributor contract for claiming rewards
     IMerklDistributor public constant MERKL_DISTRIBUTOR =
@@ -32,12 +34,9 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
 
     address public immutable GOV;
 
-    /// @notice Optional USD price feeds (1e8) for collateral and borrow token.
-    address public assetUsdOracle;
+    /// @notice USD price feed (1e8) for borrow token.
+    /// @dev Collateral price is derived using Morpho's oracle (collateral -> borrow) then this oracle (borrow -> USD).
     address public borrowUsdOracle;
-
-    /// @notice Optional external reward APR oracle.
-    address public rewardAprOracle;
 
     constructor(
         address _asset,
@@ -47,7 +46,6 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
         address _gov,
         address _morpho,
         Id _marketId,
-        address _assetUsdOracle,
         address _borrowUsdOracle
     ) BaseLenderBorrower(_asset, _name, _borrowToken, _lenderVault) {
         require(_lenderVault != address(0), "!lenderVault");
@@ -63,7 +61,6 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
         ERC20(_borrowToken).safeApprove(_morpho, type(uint256).max);
 
         _setMinAmountToSell(1e6);
-        assetUsdOracle = _assetUsdOracle;
         borrowUsdOracle = _borrowUsdOracle;
     }
 
@@ -91,9 +88,26 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
         morpho.borrow(marketParams, amount, 0, address(this), address(this));
     }
 
+    // Need to give shares as input to avoid rounding errors on full repays.
     function _repay(uint256 amount) internal virtual override {
         if (amount == 0) return;
-        morpho.repay(marketParams, amount, 0, address(this), "");
+        (
+            ,
+            ,
+            uint256 totalBorrowAssets,
+            uint256 totalBorrowShares
+        ) = MorphoBalancesLib.expectedMarketBalances(morpho, marketParams);
+
+        uint256 shares = Math.min(
+            SharesMathLib.toSharesDown(
+                amount,
+                totalBorrowAssets,
+                totalBorrowShares
+            ),
+            morpho.borrowShares(marketId, address(this))
+        );
+
+        morpho.repay(marketParams, 0, shares, address(this), "");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -106,13 +120,11 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
         if (_asset == borrowToken) {
             price = _readUsdOracle(borrowUsdOracle);
         } else if (_asset == address(asset)) {
-            if (assetUsdOracle != address(0)) {
-                price = _readUsdOracle(assetUsdOracle);
-            } else {
-                uint256 borrowUsd = _readUsdOracle(borrowUsdOracle);
-                uint256 ratio = IOracle(marketParams.oracle).price(); // 1e36, loan per collateral
-                price = (ratio * borrowUsd) / ORACLE_PRICE_SCALE;
-            }
+            // Use Morpho's oracle to get collateral price in borrow token, then convert to USD
+            // Morpho oracle returns: (borrow token amount) / (collateral amount) scaled by 1e36
+            uint256 borrowUsd = _readUsdOracle(borrowUsdOracle);
+            uint256 ratio = IOracle(marketParams.oracle).price(); // 1e36, loan per collateral
+            price = (ratio * borrowUsd) / ORACLE_PRICE_SCALE;
         } else {
             revert("unsupported asset");
         }
@@ -281,11 +293,9 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
         _setMinAmountToSell(_minAmountToSell);
     }
 
-    function setUsdOracles(
-        address _assetUsdOracle,
+    function setBorrowUsdOracle(
         address _borrowUsdOracle
     ) external onlyManagement {
-        assetUsdOracle = _assetUsdOracle;
         borrowUsdOracle = _borrowUsdOracle;
     }
 

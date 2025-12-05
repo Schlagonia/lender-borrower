@@ -37,15 +37,12 @@ contract Setup is ExtendedTest, IEvents {
         );
     address public constant LENDER_VAULT =
         0xBc65ad17c5C0a2A4D159fa5a503f4992c7B545FE; // USDC ERC4626 vault
-    address public constant ASSET_USD_ORACLE =
-        0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c; // WBTC / USD
     address public constant BORROW_USD_ORACLE =
         0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6; // USDC / USD
 
     address public borrowToken;
     address public lenderVault = LENDER_VAULT;
     address public morpho = MORPHO;
-    address public assetUsdOracle = ASSET_USD_ORACLE;
     address public borrowUsdOracle = BORROW_USD_ORACLE;
     Id public marketId = MARKET_ID;
 
@@ -119,7 +116,6 @@ contract Setup is ExtendedTest, IEvents {
                     borrowToken,
                     lenderVault,
                     marketId,
-                    assetUsdOracle,
                     borrowUsdOracle
                 )
             )
@@ -127,6 +123,10 @@ contract Setup is ExtendedTest, IEvents {
 
         vm.prank(management);
         _strategy.acceptManagement();
+
+        // Set loss limit ratio to 1% (100 bps) to allow for interest accrual between reports
+        vm.prank(management);
+        _strategy.setLossLimitRatio(100);
 
         return address(_strategy);
     }

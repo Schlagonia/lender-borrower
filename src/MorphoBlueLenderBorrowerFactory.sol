@@ -41,7 +41,6 @@ contract MorphoBlueLenderBorrowerFactory {
         address _borrowToken,
         address _lenderVault,
         Id _marketId,
-        address _assetUsdOracle,
         address _borrowUsdOracle
     ) external virtual returns (address) {
         IStrategyInterface _newStrategy = IStrategyInterface(
@@ -54,7 +53,6 @@ contract MorphoBlueLenderBorrowerFactory {
                     GOV,
                     morpho,
                     _marketId,
-                    _assetUsdOracle,
                     _borrowUsdOracle
                 )
             )

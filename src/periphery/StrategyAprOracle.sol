@@ -53,14 +53,11 @@ contract StrategyAprOracle is Governance {
             borrowDelta
         );
 
-        // Include external rewardApr oracle if set.
-        if (strat.rewardAprOracle() != address(0)) {
-            address rewardAprOracle = rewardAprOracles[address(strat)];
-            if (rewardAprOracle != address(0)) {
-                rewardApr += IRewardAprOracle(rewardAprOracle).borrowRewardApr(
-                    strat.marketId()
-                );
-            }
+        address rewardAprOracle = rewardAprOracles[address(strat)];
+        if (rewardAprOracle != address(0)) {
+            rewardApr += IRewardAprOracle(rewardAprOracle).borrowRewardApr(
+                strat.marketId()
+            );
         }
 
         // Net APR, floor at 0 to avoid underflow for unprofitable positions.

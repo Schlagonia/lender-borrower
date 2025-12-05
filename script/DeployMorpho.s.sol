@@ -11,7 +11,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 /// @notice Basic deployment script for MorphoBlueLenderBorrower without using the factory.
 ///         Provide constructor params via environment variables.
 ///         Required env:
-///         ASSET, BORROW_TOKEN, LENDER_VAULT, GOV, MORPHO, MARKET_ID (bytes32), ASSET_USD_ORACLE, BORROW_USD_ORACLE, STRAT_NAME.
+///         ASSET, BORROW_TOKEN, LENDER_VAULT, GOV, MORPHO, MARKET_ID (bytes32), BORROW_USD_ORACLE, STRAT_NAME.
 contract DeployMorpho is Script {
 
     address public deployer = 0x1b5f15DCb82d25f91c65b53CEe151E8b9fBdD271;
@@ -34,10 +34,6 @@ contract DeployMorpho is Script {
         address morpho = vm.envOr(
             "MORPHO",
             address(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb)
-        );
-        address assetUsdOracle = vm.envOr(
-            "ASSET_USD_ORACLE",
-            address(0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c) // BTC/USD
         );
         address borrowUsdOracle = vm.envOr(
             "BORROW_USD_ORACLE",
@@ -64,7 +60,6 @@ contract DeployMorpho is Script {
             gov,
             morpho,
             Id.wrap(marketIdBytes),
-            assetUsdOracle,
             borrowUsdOracle
         );
 

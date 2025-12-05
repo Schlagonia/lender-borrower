@@ -4,7 +4,7 @@ pragma solidity ^0.8.18;
 import {IStrategy} from "@tokenized-strategy/interfaces/IStrategy.sol";
 import {ILenderBorrower} from "./ILenderBorrower.sol";
 import {IMorpho} from "./morpho/IMorpho.sol";
-import {Id, MarketParams} from "./morpho/IMorpho.sol";
+import {Id} from "./morpho/IMorpho.sol";
 
 interface IStrategyInterface is IStrategy, ILenderBorrower {
     //TODO: Add your specific implementation interface in here.
@@ -18,9 +18,10 @@ interface IStrategyInterface is IStrategy, ILenderBorrower {
 
     function marketId() external view returns (Id);
 
-    function marketParams() external view returns (address, address, address, address, uint256);
-
-    function rewardAprOracle() external view returns (address);
+    function marketParams()
+        external
+        view
+        returns (address, address, address, address, uint256);
 
     function lenderVault() external view returns (address);
 
@@ -31,7 +32,10 @@ interface IStrategyInterface is IStrategy, ILenderBorrower {
     // Morpho-specific management setters
     function setRewardAprOracle(address _oracle) external;
 
-    function setUsdOracles(address _assetUsdOracle, address _borrowUsdOracle) external;
+    function setUsdOracles(
+        address _assetUsdOracle,
+        address _borrowUsdOracle
+    ) external;
 
     function setUniFees(address _token0, address _token1, uint24 _fee) external;
 

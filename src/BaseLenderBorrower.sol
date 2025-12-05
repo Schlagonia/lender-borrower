@@ -1001,10 +1001,12 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     ) external virtual onlyEmergencyAuthorized {
         if (_amount == type(uint256).max) {
             uint256 _balanceOfBorrowToken = balanceOfBorrowToken();
-            _amount = Math.min(
-                balanceOfLentAssets() + _balanceOfBorrowToken - balanceOfDebt(),
-                _balanceOfBorrowToken
-            );
+            uint256 have = balanceOfLentAssets() + _balanceOfBorrowToken;
+            uint256 owe = balanceOfDebt();
+            // Only sell excess if we have more than we owe
+            _amount = have > owe
+                ? Math.min(have - owe, _balanceOfBorrowToken)
+                : 0;
         }
         _sellBorrowToken(_amount);
     }
