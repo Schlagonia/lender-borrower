@@ -6,11 +6,9 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {BaseLenderBorrower} from "./BaseLenderBorrower.sol";
-import {IMorpho, Id, MarketParams, Market, Position} from "./interfaces/morpho/IMorpho.sol";
+import {IMorpho, Id, MarketParams, Position} from "./interfaces/morpho/IMorpho.sol";
 import {IChainlinkAggregator} from "./interfaces/IChainlinkAggregator.sol";
 import {IOracle} from "./interfaces/morpho/IOracle.sol";
-import {IIrm} from "./interfaces/morpho/IIrm.sol";
-import {MarketParamsLib} from "./libraries/morpho/MarketParamsLib.sol";
 import {MorphoBalancesLib, MorphoLib} from "./libraries/morpho/periphery/MorphoBalancesLib.sol";
 import {SharesMathLib} from "./libraries/morpho/SharesMathLib.sol";
 import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
@@ -18,7 +16,6 @@ import {IMerklDistributor} from "./interfaces/IMerkleDistributor.sol";
 
 contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
     using SafeERC20 for ERC20;
-    using MarketParamsLib for MarketParams;
     using MorphoBalancesLib for IMorpho;
     using MorphoLib for IMorpho;
 
@@ -49,6 +46,7 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
         address _borrowUsdOracle
     ) BaseLenderBorrower(_asset, _name, _borrowToken, _lenderVault) {
         require(_lenderVault != address(0), "!lenderVault");
+        require(_gov != address(0), "!gov");
         GOV = _gov;
         morpho = IMorpho(_morpho);
         marketId = _marketId;
@@ -57,10 +55,15 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
         require(marketParams.loanToken == _borrowToken, "!loanToken");
         require(marketParams.collateralToken == _asset, "!collateral");
 
-        ERC20(_asset).safeApprove(_morpho, type(uint256).max);
-        ERC20(_borrowToken).safeApprove(_morpho, type(uint256).max);
+        ERC20(_asset).forceApprove(_morpho, type(uint256).max);
+        ERC20(_borrowToken).forceApprove(_morpho, type(uint256).max);
 
-        _setMinAmountToSell(1e6);
+        _setMinAmountToSell(1e4);
+
+        require(
+            IChainlinkAggregator(_borrowUsdOracle).decimals() == 8,
+            "!decimals"
+        );
         borrowUsdOracle = _borrowUsdOracle;
     }
 
@@ -222,7 +225,7 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
         uint256 have = balanceOfLentAssets() + balanceOfBorrowToken();
         uint256 owe = balanceOfDebt();
 
-        if (have >= owe) {
+        if (have > owe) {
             uint256 amountToSell = have - owe;
             _withdrawFromLender(amountToSell);
             _sellBorrowToken(Math.min(amountToSell, balanceOfBorrowToken()));
@@ -296,6 +299,10 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
     function setBorrowUsdOracle(
         address _borrowUsdOracle
     ) external onlyManagement {
+        require(
+            IChainlinkAggregator(_borrowUsdOracle).decimals() == 8,
+            "!decimals"
+        );
         borrowUsdOracle = _borrowUsdOracle;
     }
 

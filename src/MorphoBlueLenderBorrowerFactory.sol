@@ -27,6 +27,7 @@ contract MorphoBlueLenderBorrowerFactory {
         address _gov,
         address _morpho
     ) {
+        require(_gov != address(0), "!gov");
         management = _management;
         performanceFeeRecipient = _performanceFeeRecipient;
         keeper = _keeper;

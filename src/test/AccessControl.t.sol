@@ -114,12 +114,19 @@ contract AccessControlTest is Setup {
     }
 
     function test_setBorrowUsdOracle_onlyManagement() public {
-        address newOracle = address(0xDEAD);
+        address newOracle = address(0x2665701293fCbEB223D11A08D826563EDcCE423A);
+        address badOracle = address(0x656c0544eF4C98A6a98491833A89204Abb045d6b);
 
         vm.prank(user);
         vm.expectRevert("!management");
         MorphoBlueLenderBorrower(address(strategy)).setBorrowUsdOracle(
             newOracle
+        );
+
+        vm.prank(management);
+        vm.expectRevert("!decimals");
+        MorphoBlueLenderBorrower(address(strategy)).setBorrowUsdOracle(
+            badOracle
         );
 
         vm.prank(management);
