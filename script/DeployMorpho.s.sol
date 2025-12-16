@@ -45,6 +45,10 @@ contract DeployMorpho is Script {
                 0x3a85e619751152991742810df6ec69ce473daef99e28a64ab2340d7b7ccfee49
             )
         );
+        address router = vm.envOr(
+            "ROUTER",
+            address(0xE592427A0AEce92De3Edee1F18E0157C05861564) // Uniswap V3 Router
+        );
         string memory name = vm.envOr(
             "STRAT_NAME",
             string("Morpho WBTC/USDC Lender Borrower")
@@ -60,7 +64,8 @@ contract DeployMorpho is Script {
             gov,
             morpho,
             Id.wrap(marketIdBytes),
-            borrowUsdOracle
+            borrowUsdOracle,
+            router
         );
 
         console2.log("MorphoBlueLenderBorrower deployed at", address(deployed));

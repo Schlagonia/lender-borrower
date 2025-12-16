@@ -12,16 +12,11 @@ import {IOracle} from "./interfaces/morpho/IOracle.sol";
 import {MorphoBalancesLib, MorphoLib} from "./libraries/morpho/periphery/MorphoBalancesLib.sol";
 import {SharesMathLib} from "./libraries/morpho/SharesMathLib.sol";
 import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
-import {IMerklDistributor} from "./interfaces/IMerkleDistributor.sol";
 
 contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
     using SafeERC20 for ERC20;
     using MorphoBalancesLib for IMorpho;
     using MorphoLib for IMorpho;
-
-    /// @notice The Merkl Distributor contract for claiming rewards
-    IMerklDistributor public constant MERKL_DISTRIBUTOR =
-        IMerklDistributor(0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae);
 
     uint256 internal constant ORACLE_PRICE_SCALE = 1e36;
 
@@ -43,27 +38,27 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
         address _gov,
         address _morpho,
         Id _marketId,
-        address _borrowUsdOracle
+        address _borrowUsdOracle,
+        address _router
     ) BaseLenderBorrower(_asset, _name, _borrowToken, _lenderVault) {
-        require(_lenderVault != address(0), "!lenderVault");
-        require(_gov != address(0), "!gov");
         GOV = _gov;
         morpho = IMorpho(_morpho);
         marketId = _marketId;
 
         marketParams = morpho.idToMarketParams(_marketId);
-        require(marketParams.loanToken == _borrowToken, "!loanToken");
-        require(marketParams.collateralToken == _asset, "!collateral");
+        require(
+            marketParams.loanToken == _borrowToken &&
+                marketParams.collateralToken == _asset,
+            "!market"
+        );
 
         ERC20(_asset).forceApprove(_morpho, type(uint256).max);
         ERC20(_borrowToken).forceApprove(_morpho, type(uint256).max);
 
         _setMinAmountToSell(1e4);
+        router = _router;
 
-        require(
-            IChainlinkAggregator(_borrowUsdOracle).decimals() == 8,
-            "!decimals"
-        );
+        require(IChainlinkAggregator(_borrowUsdOracle).decimals() == 8);
         borrowUsdOracle = _borrowUsdOracle;
     }
 
@@ -129,7 +124,7 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
             uint256 ratio = IOracle(marketParams.oracle).price(); // 1e36, loan per collateral
             price = (ratio * borrowUsd) / ORACLE_PRICE_SCALE;
         } else {
-            revert("unsupported asset");
+            revert("!asset");
         }
     }
 
@@ -233,11 +228,8 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
     }
 
     function _buyBorrowToken() internal virtual override {
-        _buyBorrowToken(borrowTokenOwedBalance());
-    }
+        uint256 _amount = borrowTokenOwedBalance();
 
-    function _buyBorrowToken(uint256 _amount) internal virtual {
-        if (_amount == 0) return;
         uint256 maxAssetIn = (_fromUsd(
             _toUsd(_amount, borrowToken),
             address(asset)
@@ -256,22 +248,6 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
             _amount,
             _getAmountOut(_amount, borrowToken, address(asset))
         );
-    }
-
-    /**
-     * @notice Claims rewards from Merkl distributor
-     * @param users Recipients of tokens
-     * @param tokens ERC20 tokens being claimed
-     * @param amounts Amounts of tokens that will be sent to the corresponding users
-     * @param proofs Array of Merkle proofs verifying the claims
-     */
-    function claim(
-        address[] calldata users,
-        address[] calldata tokens,
-        uint256[] calldata amounts,
-        bytes32[][] calldata proofs
-    ) external {
-        MERKL_DISTRIBUTOR.claim(users, tokens, amounts, proofs);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -299,10 +275,7 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
     function setBorrowUsdOracle(
         address _borrowUsdOracle
     ) external onlyManagement {
-        require(
-            IChainlinkAggregator(_borrowUsdOracle).decimals() == 8,
-            "!decimals"
-        );
+        require(IChainlinkAggregator(_borrowUsdOracle).decimals() == 8);
         borrowUsdOracle = _borrowUsdOracle;
     }
 
@@ -321,7 +294,7 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
 
     function _readUsdOracle(address _oracle) internal view returns (uint256) {
         int256 answer = IChainlinkAggregator(_oracle).latestAnswer();
-        require(answer > 0, "bad oracle");
+        require(answer > 0, "0");
         return uint256(answer);
     }
 }

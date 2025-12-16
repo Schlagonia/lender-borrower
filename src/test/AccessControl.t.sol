@@ -124,7 +124,7 @@ contract AccessControlTest is Setup {
         );
 
         vm.prank(management);
-        vm.expectRevert("!decimals");
+        vm.expectRevert();
         MorphoBlueLenderBorrower(address(strategy)).setBorrowUsdOracle(
             badOracle
         );

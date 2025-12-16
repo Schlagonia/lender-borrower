@@ -39,11 +39,13 @@ contract Setup is ExtendedTest, IEvents {
         0xBc65ad17c5C0a2A4D159fa5a503f4992c7B545FE; // USDC ERC4626 vault
     address public constant BORROW_USD_ORACLE =
         0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6; // USDC / USD
+    address public constant ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564; // Uniswap V3 Router
 
     address public borrowToken;
     address public lenderVault = LENDER_VAULT;
     address public morpho = MORPHO;
     address public borrowUsdOracle = BORROW_USD_ORACLE;
+    address public router = ROUTER;
     Id public marketId = MARKET_ID;
 
     mapping(string => address) public tokenAddrs;
@@ -88,7 +90,8 @@ contract Setup is ExtendedTest, IEvents {
             keeper,
             emergencyAdmin,
             gov,
-            morpho
+            morpho,
+            router
         );
 
         // Deploy strategy and set variables

@@ -10,6 +10,7 @@ contract MorphoBlueLenderBorrowerFactory {
 
     address public immutable GOV;
     address public immutable morpho;
+    address public immutable router;
 
     address public management;
     address public performanceFeeRecipient;
@@ -25,15 +26,17 @@ contract MorphoBlueLenderBorrowerFactory {
         address _keeper,
         address _emergencyAdmin,
         address _gov,
-        address _morpho
+        address _morpho,
+        address _router
     ) {
-        require(_gov != address(0), "!gov");
+        require(_gov != address(0));
         management = _management;
         performanceFeeRecipient = _performanceFeeRecipient;
         keeper = _keeper;
         emergencyAdmin = _emergencyAdmin;
         GOV = _gov;
         morpho = _morpho;
+        router = _router;
     }
 
     function newStrategy(
@@ -44,6 +47,7 @@ contract MorphoBlueLenderBorrowerFactory {
         Id _marketId,
         address _borrowUsdOracle
     ) external virtual returns (address) {
+        require(deployments[_marketId] == address(0));
         IStrategyInterface _newStrategy = IStrategyInterface(
             address(
                 new MorphoBlueLenderBorrower(
@@ -54,7 +58,8 @@ contract MorphoBlueLenderBorrowerFactory {
                     GOV,
                     morpho,
                     _marketId,
-                    _borrowUsdOracle
+                    _borrowUsdOracle,
+                    router
                 )
             )
         );
