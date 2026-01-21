@@ -64,21 +64,6 @@ contract OperationTest is Setup {
     function test_profitableReport(uint256 _amount) public {
         _amount = bound(_amount, minFuzzAmount, maxFuzzAmount / 5);
 
-        // Configure UniV3 fees for USDC/WETH/WBTC (0.3%).
-        address uniBase = IStrategyInterface(address(strategy)).base();
-        vm.startPrank(management);
-        IStrategyInterface(address(strategy)).setUniFees(
-            borrowToken,
-            uniBase,
-            3000
-        );
-        IStrategyInterface(address(strategy)).setUniFees(
-            uniBase,
-            address(asset),
-            3000
-        );
-        vm.stopPrank();
-
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
         // Let some time pass to accrue interest and enable profit.

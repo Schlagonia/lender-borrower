@@ -5,6 +5,7 @@ import {Setup, ERC20} from "./utils/Setup.sol";
 import {MorphoBlueLenderBorrower} from "../MorphoBlueLenderBorrower.sol";
 import {IMorpho, Position, Market, MarketParams} from "../interfaces/morpho/IMorpho.sol";
 import {IOracle} from "../interfaces/morpho/IOracle.sol";
+import {IChainlinkAggregator} from "../interfaces/IChainlinkAggregator.sol";
 
 contract MorphoTest is Setup {
     uint256 internal constant WAD = 1e18;
@@ -124,6 +125,44 @@ contract MorphoTest is Setup {
         // At ~$90k BTC, this would be around 9e40 to 1e41
         assertGt(price, 1e38, "price seems too low for BTC");
         assertLt(price, 1e42, "price seems too high");
+    }
+
+    function test_ltvMatchesOraclePricing(uint256 _amount) public {
+        vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
+
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        uint256 collateral = strategy.balanceOfCollateral();
+        uint256 debt = strategy.balanceOfDebt();
+        assertGt(collateral, 0, "no collateral");
+        assertGt(debt, 0, "no debt");
+
+        (, , address oracleAddr, , ) = strategy.marketParams();
+        uint256 ratio = IOracle(oracleAddr).price(); // loan per collateral, 1e36 scale
+        assertGt(ratio, 0, "oracle price should be positive");
+
+        address loanToken = strategy.borrowToken();
+        uint256 loanScale = uint256(10 ** ERC20(loanToken).decimals());
+
+        address borrowOracle = MorphoBlueLenderBorrower(address(strategy))
+            .borrowUsdOracle();
+        int256 answer = IChainlinkAggregator(borrowOracle).latestAnswer();
+        assertGt(answer, 0, "borrow usd oracle");
+        uint256 borrowUsd = uint256(answer); // 1e8
+
+        // Compute LTV using Morpho oracle spec with decimals normalization.
+        uint256 collateralInLoan = (collateral * ratio) / ORACLE_PRICE_SCALE;
+        uint256 collateralUsd = (collateralInLoan * borrowUsd) / loanScale;
+        uint256 debtUsd = (debt * borrowUsd) / loanScale;
+        uint256 expectedLTV = (debtUsd * WAD) / collateralUsd;
+
+        uint256 currentLTV = strategy.getCurrentLTV();
+        assertApproxEq(
+            currentLTV,
+            expectedLTV,
+            expectedLTV / 20,
+            "ltv mismatch"
+        );
     }
 
     function test_isLiquidatable_false(uint256 _amount) public {

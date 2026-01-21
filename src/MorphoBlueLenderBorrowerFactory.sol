@@ -86,11 +86,4 @@ contract MorphoBlueLenderBorrowerFactory {
         keeper = _keeper;
         emergencyAdmin = _emergencyAdmin;
     }
-
-    function isDeployedStrategy(
-        address _strategy
-    ) external view returns (bool) {
-        Id id = MorphoBlueLenderBorrower(_strategy).marketId();
-        return deployments[id] == _strategy;
-    }
 }

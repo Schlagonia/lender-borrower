@@ -46,15 +46,6 @@ contract FactoryTest is Setup {
         );
     }
 
-    function test_isDeployedStrategy() public {
-        assertTrue(
-            strategyFactory.isDeployedStrategy(address(strategy)),
-            "should be deployed"
-        );
-        // Note: isDeployedStrategy calls marketId() on the input address
-        // So we need to use another valid strategy address (or just test the positive case)
-    }
-
     function test_deploymentTracksByMarketId() public {
         address deployed = strategyFactory.deployments(marketId);
         assertEq(deployed, address(strategy), "deployment not tracked");

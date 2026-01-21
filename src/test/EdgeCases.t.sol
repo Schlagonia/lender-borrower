@@ -9,23 +9,7 @@ contract EdgeCasesTest is Setup {
         super.setUp();
     }
 
-    /// @notice Test sellBorrowToken with max uint when debt > assets
-    /// @dev This test checks if sellBorrowToken(type(uint256).max) can underflow
-    ///      when balanceOfDebt() > balanceOfLentAssets() + balanceOfBorrowToken()
-    ///
-    /// In BaseLenderBorrower.sol line 1002-1007:
-    /// _amount = Math.min(
-    ///     balanceOfLentAssets() + _balanceOfBorrowToken - balanceOfDebt(),  // Can underflow!
-    ///     _balanceOfBorrowToken
-    /// );
-    ///
-    /// BUG: This demonstrates the underflow potential. The code at line 1005 does:
-    ///   balanceOfLentAssets() + _balanceOfBorrowToken - balanceOfDebt()
-    /// If debt > (lent + loose), this underflows in Solidity 0.8.
-    ///
-    /// FIX: Should check if debt > have before subtracting, and return 0 in that case.
-    /// EXPECTED: This test is expected to fail until the bug is fixed.
-    function test_BUG_sellBorrowToken_maxUint_underflow() public {
+    function test_sellBorrowToken_maxUint() public {
         uint256 _amount = minFuzzAmount;
 
         mintAndDepositIntoStrategy(strategy, user, _amount);

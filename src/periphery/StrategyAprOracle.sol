@@ -7,6 +7,7 @@ import {IMorpho, Id, Market, MarketParams} from "../interfaces/morpho/IMorpho.so
 import {IOracle} from "../interfaces/morpho/IOracle.sol";
 import {IIrm} from "../interfaces/morpho/IIrm.sol";
 import {MorphoBalancesLib} from "../libraries/morpho/periphery/MorphoBalancesLib.sol";
+import {SharesMathLib} from "../libraries/morpho/SharesMathLib.sol";
 import {Governance} from "@periphery/utils/Governance.sol";
 
 interface IRewardAprOracle {
@@ -36,7 +37,7 @@ contract StrategyAprOracle is Governance {
     /**
      * @notice Expected APR after a debt change. Positive _delta means more debt (assets) to the strategy.
      * @param _strategy The strategy to evaluate.
-     * @param _delta Debt change in terms of strategy asset (ignored for this simple approximation).
+     * @param _delta Debt change in terms of strategy asset
      * @return apr The expected net APR in 1e18.
      */
     function aprAfterDebtChange(
@@ -45,7 +46,7 @@ contract StrategyAprOracle is Governance {
     ) external view returns (uint256 apr) {
         MorphoBlueLenderBorrower strat = MorphoBlueLenderBorrower(_strategy);
         int256 borrowDelta = _borrowDelta(strat, _delta);
-        uint256 borrowApr = _borrowApr(strat);
+        uint256 borrowApr = _borrowApr(strat, borrowDelta);
 
         // Reward APR from the lender vault (borrow token APR).
         uint256 rewardApr = APR_ORACLE.getStrategyApr(
@@ -85,7 +86,8 @@ contract StrategyAprOracle is Governance {
     }
 
     function _borrowApr(
-        MorphoBlueLenderBorrower strat
+        MorphoBlueLenderBorrower strat,
+        int256 borrowDelta
     ) internal view returns (uint256) {
         (
             address loanToken,
@@ -107,6 +109,9 @@ contract StrategyAprOracle is Governance {
             .morpho()
             .expectedMarketBalances(params);
         Market memory market = strat.morpho().market(strat.marketId());
+        if (borrowDelta != 0) {
+            (tba, tbs) = _applyBorrowDelta(tba, tbs, borrowDelta);
+        }
         market.totalSupplyAssets = uint128(tsa);
         market.totalSupplyShares = uint128(tss);
         market.totalBorrowAssets = uint128(tba);
@@ -117,5 +122,41 @@ contract StrategyAprOracle is Governance {
             market
         );
         return borrowRatePerSec * SECONDS_PER_YEAR;
+    }
+
+    function _applyBorrowDelta(
+        uint256 totalBorrowAssets,
+        uint256 totalBorrowShares,
+        int256 borrowDelta
+    ) internal pure returns (uint256 newBorrowAssets, uint256 newBorrowShares) {
+        if (borrowDelta > 0) {
+            uint256 deltaAssets = uint256(borrowDelta);
+            uint256 deltaShares = SharesMathLib.toSharesUp(
+                deltaAssets,
+                totalBorrowAssets,
+                totalBorrowShares
+            );
+            return (
+                totalBorrowAssets + deltaAssets,
+                totalBorrowShares + deltaShares
+            );
+        }
+
+        uint256 deltaAssets = uint256(-borrowDelta);
+        if (deltaAssets >= totalBorrowAssets) return (0, 0);
+
+        uint256 deltaShares = SharesMathLib.toSharesUp(
+            deltaAssets,
+            totalBorrowAssets,
+            totalBorrowShares
+        );
+        if (deltaShares > totalBorrowShares) {
+            deltaShares = totalBorrowShares;
+        }
+
+        return (
+            totalBorrowAssets - deltaAssets,
+            totalBorrowShares - deltaShares
+        );
     }
 }

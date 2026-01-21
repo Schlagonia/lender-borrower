@@ -124,12 +124,18 @@ contract Setup is ExtendedTest, IEvents {
             )
         );
 
-        vm.prank(management);
+        vm.startPrank(management);
         _strategy.acceptManagement();
 
-        // Set loss limit ratio to 1% (100 bps) to allow for interest accrual between reports
-        vm.prank(management);
-        _strategy.setLossLimitRatio(100);
+        // Configure UniV3 fees for USDC/WETH/WBTC (0.3%).
+        _strategy.setUniFees(borrowToken, address(asset), 3000);
+
+        _strategy.setUniBase(borrowToken);
+
+        // Set loss limit ratio to .1% (10 bps) to allow for interest accrual between reports
+        _strategy.setLossLimitRatio(10);
+
+        vm.stopPrank();
 
         return address(_strategy);
     }
