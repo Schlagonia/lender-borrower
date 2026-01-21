@@ -12,6 +12,7 @@ import {IOracle} from "./interfaces/morpho/IOracle.sol";
 import {MorphoBalancesLib, MorphoLib} from "./libraries/morpho/periphery/MorphoBalancesLib.sol";
 import {SharesMathLib} from "./libraries/morpho/SharesMathLib.sol";
 import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
+import {IMerklDistributor} from "./interfaces/IMerklDistributor.sol";
 
 contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
     using SafeERC20 for ERC20;
@@ -19,6 +20,10 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
     using MorphoLib for IMorpho;
 
     uint256 internal constant ORACLE_PRICE_SCALE = 1e36;
+
+    /// @notice The Merkl Distributor contract for claiming rewards
+    IMerklDistributor public constant MERKL_DISTRIBUTOR =
+        IMerklDistributor(0x3Ef3D8bA38EBe18DB133cEc108f4D14CE00Dd9Ae);
 
     IMorpho public immutable morpho;
     Id public immutable marketId;
@@ -33,6 +38,8 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
     /// @notice USD price feed (1e8) for borrow token.
     /// @dev Collateral price is derived using Morpho's oracle (collateral -> borrow) then this oracle (borrow -> USD).
     address public borrowUsdOracle;
+
+    address[] public rewardTokens;
 
     constructor(
         address _asset,
@@ -224,6 +231,20 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
     function _claimRewards() internal virtual override {}
 
     function _claimAndSellRewards() internal virtual override {
+        address[] memory _rewardTokens = rewardTokens;
+        address rewardToken;
+        for (uint256 i = 0; i < _rewardTokens.length; i++) {
+            rewardToken = _rewardTokens[i];
+
+            // Swapper checks > minAmountToSell
+            _swapFrom(
+                rewardToken,
+                address(asset),
+                ERC20(rewardToken).balanceOf(address(this)),
+                0
+            );
+        }
+
         uint256 have = balanceOfLentAssets() + balanceOfBorrowToken();
         uint256 owe = balanceOfDebt();
 
@@ -257,6 +278,26 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
         );
     }
 
+    /**
+     * @notice Claims rewards from Merkl distributor
+     * @param users Recipients of tokens
+     * @param tokens ERC20 tokens being claimed
+     * @param amounts Amounts of tokens that will be sent to the corresponding users
+     * @param proofs Array of Merkle proofs verifying the claims
+     */
+    function claim(
+        address[] calldata users,
+        address[] calldata tokens,
+        uint256[] calldata amounts,
+        bytes32[][] calldata proofs
+    ) external {
+        MERKL_DISTRIBUTOR.claim(users, tokens, amounts, proofs);
+    }
+
+    function getRewardTokens() external view returns (address[] memory) {
+        return rewardTokens;
+    }
+
     /*//////////////////////////////////////////////////////////////
                         MANAGEMENT UTILITIES
     //////////////////////////////////////////////////////////////*/
@@ -271,6 +312,30 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
 
     function setUniBase(address _base) external onlyManagement {
         base = _base;
+    }
+
+    function addRewardToken(address _rewardToken) external onlyManagement {
+        require(
+            _rewardToken != address(0) &&
+                _rewardToken != address(asset) &&
+                _rewardToken != address(borrowToken) &&
+                _rewardToken != address(lenderVault)
+        );
+        rewardTokens.push(_rewardToken);
+    }
+
+    function removeRewardToken(address _rewardToken) external onlyManagement {
+        address[] memory _rewardTokens = rewardTokens;
+        for (uint256 i = 0; i < _rewardTokens.length; i++) {
+            if (_rewardTokens[i] == _rewardToken) {
+                if (i != _rewardTokens.length - 1) {
+                    _rewardTokens[i] = _rewardTokens[_rewardTokens.length - 1];
+                }
+                rewardTokens = _rewardTokens;
+                rewardTokens.pop();
+                break;
+            }
+        }
     }
 
     function setMinAmountToSell(

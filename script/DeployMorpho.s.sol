@@ -102,8 +102,17 @@ contract DeployMorpho is Script {
     }
 
     function setupDeployments() internal {
+        if (block.chainid == 1) {
+            setupMainnetDeployments();
+        } else if (block.chainid == 747474) {
+            setupKatanaDeployments();
+        } else {
+            revert("Unsupported chain");
+        }
         delete configs;
+    }
 
+    function setupMainnetDeployments() internal {
         // First entry: existing WBTC/USDC setup on mainnet.
         configs.push(
             StrategyConfig({
@@ -159,6 +168,39 @@ contract DeployMorpho is Script {
                 borrowUsdOracle: address(
                     0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6
                 ) // USDC/USD
+            })
+        );
+    }
+
+    function setupKatanaDeployments() internal {
+        // Override global variables for Katana.
+        morpho = 0xD50F2DffFd62f94Ee4AEd9ca05C61d0753268aBc;
+        router = 0x4e1d81A3E627b9294532e990109e4c21d217376C;
+        gov = 0xe6ad5A88f5da0F276C903d9Ac2647A937c917162;
+        management = 0xBe7c7efc1ef3245d37E3157F76A512108D6D7aE6;
+        performanceFeeRecipient = 0x1f399808fE52d0E960CAB84b6b54d5707ab27c8a;
+        keeper = 0xC29cbdcf5843f8550530cc5d627e1dd3007EF231;
+        emergencyAdmin = 0xBe7c7efc1ef3245d37E3157F76A512108D6D7aE6;
+
+        configs.push(
+            StrategyConfig({
+                asset: address(0x0913DA6Da4b42f538B445599b46Bb4622342Cf52), // vbWBTC
+                name: "Morpho vbWBTC/yvUSDC Lender Borrower",
+                borrowToken: address(0x203A662b0BD271A6ed5a60EdFbd04bFce608FD36),
+                lenderVault: address(0x80c34BD3A3569E126e7055831036aa7b212cB159), // USDC ERC4626 vault
+                marketId: bytes32(0xcd2dc555dced7422a3144a4126286675449019366f83e9717be7c2deb3daae3e),
+                borrowUsdOracle: address(0xbe5CE90e16B9d9d988D64b0E1f6ed46EbAfb9606) // USDC/USD
+            })
+        );
+
+        configs.push(
+            StrategyConfig({
+                asset: address(0x0913DA6Da4b42f538B445599b46Bb4622342Cf52), // vbWBTC
+                name: "Morpho vbWBTC/yvUSDC Lender Borrower",
+                borrowToken: address(0x203A662b0BD271A6ed5a60EdFbd04bFce608FD36),
+                lenderVault: address(0x80c34BD3A3569E126e7055831036aa7b212cB159), // USDC ERC4626 vault
+                marketId: bytes32(0xcd2dc555dced7422a3144a4126286675449019366f83e9717be7c2deb3daae3e),
+                borrowUsdOracle: address(0xbe5CE90e16B9d9d988D64b0E1f6ed46EbAfb9606) // USDC/USD
             })
         );
     }

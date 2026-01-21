@@ -76,6 +76,55 @@ contract EdgeCasesTest is Setup {
         );
     }
 
+    function test_claimAndSellRewards_rewardTokenSwap() public {
+        address rewardToken = 0x58D97B57BB95320F9a05dC918Aef65434969c2B2; // MORPHO
+        address uniBase = tokenAddrs["WETH"];
+        uint256 rewardAmount = 1e18;
+
+        vm.startPrank(management);
+        strategy.setUniBase(uniBase);
+
+        strategy.setUniFees(rewardToken, uniBase, 3000);
+        strategy.setUniFees(uniBase, address(asset), 3000);
+        strategy.addRewardToken(rewardToken);
+        vm.stopPrank();
+
+        airdrop(ERC20(rewardToken), address(strategy), rewardAmount);
+
+        uint256 assetBefore = asset.balanceOf(address(strategy));
+        uint256 rewardBefore = ERC20(rewardToken).balanceOf(address(strategy));
+        assertEq(rewardBefore, rewardAmount, "reward not funded");
+
+        vm.prank(management);
+        strategy.claimAndSellRewards();
+
+        uint256 rewardAfter = ERC20(rewardToken).balanceOf(address(strategy));
+        uint256 assetAfter = asset.balanceOf(address(strategy));
+
+        assertEq(rewardAfter, 0, "reward not sold");
+        assertGt(assetAfter, assetBefore, "asset not received");
+    }
+
+    function test_addRemoveRewardTokens() public {
+        address rewardTokenA = 0x58D97B57BB95320F9a05dC918Aef65434969c2B2; // MORPHO
+        address rewardTokenB = tokenAddrs["LINK"];
+
+        vm.startPrank(management);
+        strategy.addRewardToken(rewardTokenA);
+        strategy.addRewardToken(rewardTokenB);
+        vm.stopPrank();
+
+        assertEq(strategy.rewardTokens(0), rewardTokenA, "reward token 0");
+        assertEq(strategy.rewardTokens(1), rewardTokenB, "reward token 1");
+
+        vm.prank(management);
+        strategy.removeRewardToken(rewardTokenA);
+
+        assertEq(strategy.rewardTokens(0), rewardTokenB, "reward token swap");
+        vm.expectRevert();
+        strategy.rewardTokens(1);
+    }
+
     /// @notice Test withdrawing all shares (full redemption)
     /// @dev _liquidatePosition should handle this gracefully
     function test_fullRedemption() public {

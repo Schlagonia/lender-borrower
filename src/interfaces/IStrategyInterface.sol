@@ -29,6 +29,8 @@ interface IStrategyInterface is IStrategy, ILenderBorrower {
 
     function router() external view returns (address);
 
+    function rewardTokens(uint256 _index) external view returns (address);
+
     // Morpho-specific management setters
     function setRewardAprOracle(address _oracle) external;
 
@@ -46,4 +48,17 @@ interface IStrategyInterface is IStrategy, ILenderBorrower {
     function setAuction(address _auction) external;
 
     function setUseAuction(bool _useAuction) external;
+
+    function addRewardToken(address _rewardToken) external;
+
+    function removeRewardToken(address _rewardToken) external;
+
+    function getRewardTokens() external view returns (address[] memory);
+
+    function claim(
+        address[] calldata users,
+        address[] calldata tokens,
+        uint256[] calldata amounts,
+        bytes32[][] calldata proofs
+    ) external;
 }
