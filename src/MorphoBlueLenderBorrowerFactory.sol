@@ -18,7 +18,7 @@ contract MorphoBlueLenderBorrowerFactory {
     address public emergencyAdmin;
 
     /// @notice Track deployments by market id.
-    mapping(Id => address) public deployments;
+    mapping(Id => mapping(address => address)) public deployments;
 
     constructor(
         address _management,
@@ -47,7 +47,10 @@ contract MorphoBlueLenderBorrowerFactory {
         Id _marketId,
         address _borrowUsdOracle
     ) external virtual returns (address) {
-        require(deployments[_marketId] == address(0));
+        require(
+            deployments[_marketId][_lenderVault] == address(0),
+            "deployment already exists"
+        );
         IStrategyInterface _newStrategy = IStrategyInterface(
             address(
                 new MorphoBlueLenderBorrower(
@@ -70,7 +73,7 @@ contract MorphoBlueLenderBorrowerFactory {
         _newStrategy.setEmergencyAdmin(emergencyAdmin);
 
         emit NewStrategy(address(_newStrategy), _marketId);
-        deployments[_marketId] = address(_newStrategy);
+        deployments[_marketId][_lenderVault] = address(_newStrategy);
         return address(_newStrategy);
     }
 

@@ -2,11 +2,11 @@
 pragma solidity ^0.8.18;
 
 import "forge-std/Script.sol";
-import {MorphoBlueLenderBorrowerFactory} from "../src/MorphoBlueLenderBorrowerFactory.sol";
 import {Id} from "../src/interfaces/morpho/IMorpho.sol";
 import {IStrategyInterface} from "../src/interfaces/IStrategyInterface.sol";
 import {StrategyAprOracle} from "../src/periphery/StrategyAprOracle.sol";
 import {AprOracle} from "@periphery/AprOracle/AprOracle.sol";
+import {MorphoBlueLenderBorrower} from "../src/MorphoBlueLenderBorrower.sol";
 
 /// @notice Deploy factory first, then deploy multiple strategies from a hardcoded list.
 ///         Required env for factory:
@@ -26,6 +26,7 @@ contract DeployMorpho is Script {
     address public keeper = 0x604e586F17cE106B64185A7a0d2c1Da5bAce711E;
     address public emergencyAdmin =
         0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7;
+    address public aprOracle;
 
     struct StrategyConfig {
         address asset;
@@ -46,35 +47,30 @@ contract DeployMorpho is Script {
 
         vm.startBroadcast();
 
-        MorphoBlueLenderBorrowerFactory factory = new MorphoBlueLenderBorrowerFactory(
-            deployer,
-            performanceFeeRecipient,
-            keeper,
-            emergencyAdmin,
-            gov,
-            morpho,
-            router
-        );
-
-        console2.log("MorphoBlueLenderBorrowerFactory deployed at", address(factory));
-
-        StrategyAprOracle aprOracle = StrategyAprOracle(0x8C1dB64512A62A2E9528f4B54d8FbC924b99251c);
+        if (aprOracle == address(0)) {
+            aprOracle = address(new StrategyAprOracle(deployer));
+        }
 
         console2.log("StrategyAprOracle deployed at", address(aprOracle));
 
         for (uint256 i = 0; i < count; i++) {
             StrategyConfig storage cfg = configs[i];
-            address strategy = factory.newStrategy(
+            address strategy = address(new MorphoBlueLenderBorrower(
                 cfg.asset,
                 cfg.name,
                 cfg.borrowToken,
                 cfg.lenderVault,
+                gov,
+                morpho,
                 Id.wrap(cfg.marketId),
-                cfg.borrowUsdOracle
-            );
+                cfg.borrowUsdOracle,
+                router
+            ));
             console2.log("Strategy deployed", i, strategy);
 
-            IStrategyInterface(strategy).acceptManagement();
+            IStrategyInterface(strategy).setPerformanceFeeRecipient(performanceFeeRecipient);
+            IStrategyInterface(strategy).setKeeper(keeper);
+            IStrategyInterface(strategy).setEmergencyAdmin(emergencyAdmin);
             IStrategyInterface(strategy).setPerformanceFee(500);
             IStrategyInterface(strategy).setLossLimitRatio(10);
 
@@ -82,8 +78,9 @@ contract DeployMorpho is Script {
                 IStrategyInterface(strategy).setUniFees(cfg.asset, cfg.borrowToken, 3000);
                 IStrategyInterface(strategy).setUniBase(cfg.borrowToken);
             } else {
-                IStrategyInterface(strategy).setUniFees(cfg.asset, 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, 500);
-                IStrategyInterface(strategy).setUniFees(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, cfg.borrowToken, 500);
+                address weth = IStrategyInterface(strategy).base();
+                IStrategyInterface(strategy).setUniFees(cfg.asset, weth, 500);
+                IStrategyInterface(strategy).setUniFees(weth, cfg.borrowToken, 500);
             }
 
             APR_ORACLE.setOracle(strategy, address(aprOracle));
@@ -91,17 +88,11 @@ contract DeployMorpho is Script {
             IStrategyInterface(strategy).setPendingManagement(management);
         }
 
-        factory.setAddresses(
-            management,
-            performanceFeeRecipient,
-            keeper,
-            emergencyAdmin
-        );
-
         vm.stopBroadcast();
     }
 
     function setupDeployments() internal {
+        delete configs;
         if (block.chainid == 1) {
             setupMainnetDeployments();
         } else if (block.chainid == 747474) {
@@ -109,20 +100,21 @@ contract DeployMorpho is Script {
         } else {
             revert("Unsupported chain");
         }
-        delete configs;
     }
 
     function setupMainnetDeployments() internal {
+        aprOracle = 0x8C1dB64512A62A2E9528f4B54d8FbC924b99251c;
+
         // First entry: existing WBTC/USDC setup on mainnet.
         configs.push(
             StrategyConfig({
                 asset: address(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599), // WBTC
-                name: "Morpho WBTC/yvUSDC-1 Lender Borrower",
+                name: "Morpho WBTC/yvUSD Lender Borrower",
                 borrowToken: address(
                     0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
                 ), // USDC
                 lenderVault: address(
-                    0xBe53A109B494E5c9f97b9Cd39Fe969BE68BF6204
+                    0x696d02Db93291651ED510704c9b286841d506987
                 ), // USDC ERC4626 vault
                 marketId: bytes32(
                     0x3a85e619751152991742810df6ec69ce473daef99e28a64ab2340d7b7ccfee49
@@ -182,6 +174,7 @@ contract DeployMorpho is Script {
         keeper = 0xC29cbdcf5843f8550530cc5d627e1dd3007EF231;
         emergencyAdmin = 0xBe7c7efc1ef3245d37E3157F76A512108D6D7aE6;
 
+        // vbWBTC/yvUSDC
         configs.push(
             StrategyConfig({
                 asset: address(0x0913DA6Da4b42f538B445599b46Bb4622342Cf52), // vbWBTC
@@ -193,13 +186,26 @@ contract DeployMorpho is Script {
             })
         );
 
+        // vbWBTC/yvUSDT
         configs.push(
             StrategyConfig({
                 asset: address(0x0913DA6Da4b42f538B445599b46Bb4622342Cf52), // vbWBTC
-                name: "Morpho vbWBTC/yvUSDC Lender Borrower",
+                name: "Morpho vbWBTC/yvUSDT Lender Borrower",
+                borrowToken: address(0x2DCa96907fde857dd3D816880A0df407eeB2D2F2),
+                lenderVault: address(0x9A6bd7B6Fd5C4F87eb66356441502fc7dCdd185B), // USDT ERC4626 vault
+                marketId: bytes32(0xd4ab732112fa9087c9c3c3566cd25bc78ee7be4f1b8bdfe20d6328debb818656),
+                borrowUsdOracle: address(0xF03E1566Fc6B0eBFA3dD3aA197759C4c6617ec78) // USDT/USD
+            })
+        );
+
+        // vbWETH/yvUSDC
+        configs.push(
+            StrategyConfig({
+                asset: address(0xEE7D8BCFb72bC1880D0Cf19822eB0A2e6577aB62), // vbWETH
+                name: "Morpho vbWETH/yvUSDC Lender Borrower",
                 borrowToken: address(0x203A662b0BD271A6ed5a60EdFbd04bFce608FD36),
                 lenderVault: address(0x80c34BD3A3569E126e7055831036aa7b212cB159), // USDC ERC4626 vault
-                marketId: bytes32(0xcd2dc555dced7422a3144a4126286675449019366f83e9717be7c2deb3daae3e),
+                marketId: bytes32(0x2fb14719030835b8e0a39a1461b384ad6a9c8392550197a7c857cf9fcbd6c534),
                 borrowUsdOracle: address(0xbe5CE90e16B9d9d988D64b0E1f6ed46EbAfb9606) // USDC/USD
             })
         );

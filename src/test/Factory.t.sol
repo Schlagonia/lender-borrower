@@ -47,7 +47,7 @@ contract FactoryTest is Setup {
     }
 
     function test_deploymentTracksByMarketId() public {
-        address deployed = strategyFactory.deployments(marketId);
+        address deployed = strategyFactory.deployments(marketId, lenderVault);
         assertEq(deployed, address(strategy), "deployment not tracked");
     }
 

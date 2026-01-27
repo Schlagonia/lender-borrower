@@ -957,25 +957,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     }
 
     /**
-     * @dev Optional function for a strategist to override that will
-     * allow management to manually withdraw deployed funds from the
-     * yield source if a strategy is shutdown.
-     *
-     * This should attempt to free `_amount`, noting that `_amount` may
-     * be more than is currently deployed.
-     *
-     * NOTE: This will not realize any profits or losses. A separate
-     * {report} will be needed in order to record any profit/loss. If
-     * a report may need to be called after a shutdown it is important
-     * to check if the strategy is shutdown during {_harvestAndReport}
-     * so that it does not simply re-deploy all funds that had been freed.
-     *
-     * EX:
-     *   if(freeAsset > 0 && !TokenizedStrategy.isShutdown()) {
-     *       depositFunds...
-     *    }
-     *
-     * @param _amount The amount of asset to attempt to free.
+     * @param _amount The amount of BORROW_TOKEN to attempt to withdraw, then will withdraw collateral up to the max withdrawal.
      */
     function _emergencyWithdraw(uint256 _amount) internal virtual override {
         _amount = Math.min(_amount, _lenderMaxWithdraw());
