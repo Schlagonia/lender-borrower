@@ -272,20 +272,17 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
         ) * (MAX_BPS + slippage)) / MAX_BPS;
         if (maxAssetIn == 0) return;
 
-        EXCHANGE.swap(
-            _amount,
-            _getAmountOut(_amount, address(asset), borrowToken), // minAmount
-            false // fromBorrow
-        );
+        EXCHANGE.exchange(address(asset), borrowToken, maxAssetIn, _amount);
     }
 
     function _sellBorrowToken(uint256 _amount) internal virtual override {
         if (_amount == 0) return;
 
-        EXCHANGE.swap(
+        EXCHANGE.exchange(
+            borrowToken,
+            address(asset),
             _amount,
-            _getAmountOut(_amount, borrowToken, address(asset)), // minAmount
-            true // fromBorrow
+            _getAmountOut(_amount, borrowToken, address(asset)) // minAmount
         );
     }
 

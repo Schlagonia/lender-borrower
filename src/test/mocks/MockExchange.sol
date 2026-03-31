@@ -54,11 +54,65 @@ contract MockExchange is IExchange {
         collateralPrice = _collateralPrice;
     }
 
+    function exchange(
+        address _from,
+        address _to,
+        uint256 _amount,
+        uint256 _minAmount
+    ) external returns (uint256) {
+        require(
+            (_from == BORROW && _to == COLLATERAL) ||
+                (_from == COLLATERAL && _to == BORROW),
+            "pair"
+        );
+
+        return _swap(_amount, _minAmount, _from == BORROW);
+    }
+
     function swap(
         uint256 amount,
         uint256 minAmount,
         bool fromBorrow
     ) external returns (uint256) {
+        return _swap(amount, minAmount, fromBorrow);
+    }
+
+    function sweep(IERC20 _token) external {
+        require(msg.sender == sweeper, "!sweeper");
+        _token.safeTransfer(sweeper, _token.balanceOf(address(this)));
+    }
+
+    function _quoteExactInput(
+        uint256 amountIn,
+        uint256 priceIn,
+        uint256 priceOut,
+        uint8 decimalsIn,
+        uint8 decimalsOut
+    ) internal pure returns (uint256) {
+        return
+            (amountIn * priceIn * (10 ** decimalsOut)) /
+            (priceOut * (10 ** decimalsIn));
+    }
+
+    function _quoteExactOutput(
+        uint256 amountOut,
+        uint256 priceIn,
+        uint256 priceOut,
+        uint8 decimalsIn,
+        uint8 decimalsOut
+    ) internal pure returns (uint256) {
+        return
+            Math.ceilDiv(
+                amountOut * priceOut * (10 ** decimalsIn),
+                priceIn * (10 ** decimalsOut)
+            );
+    }
+
+    function _swap(
+        uint256 amount,
+        uint256 minAmount,
+        bool fromBorrow
+    ) internal returns (uint256) {
         require(amount > 0, "amount");
 
         if (fromBorrow) {
@@ -92,36 +146,5 @@ contract MockExchange is IExchange {
         );
         IERC20(BORROW).safeTransfer(msg.sender, amount);
         return collateralIn;
-    }
-
-    function sweep(IERC20 _token) external {
-        require(msg.sender == sweeper, "!sweeper");
-        _token.safeTransfer(sweeper, _token.balanceOf(address(this)));
-    }
-
-    function _quoteExactInput(
-        uint256 amountIn,
-        uint256 priceIn,
-        uint256 priceOut,
-        uint8 decimalsIn,
-        uint8 decimalsOut
-    ) internal pure returns (uint256) {
-        return
-            (amountIn * priceIn * (10 ** decimalsOut)) /
-            (priceOut * (10 ** decimalsIn));
-    }
-
-    function _quoteExactOutput(
-        uint256 amountOut,
-        uint256 priceIn,
-        uint256 priceOut,
-        uint8 decimalsIn,
-        uint8 decimalsOut
-    ) internal pure returns (uint256) {
-        return
-            Math.ceilDiv(
-                amountOut * priceOut * (10 ** decimalsIn),
-                priceIn * (10 ** decimalsOut)
-            );
     }
 }
