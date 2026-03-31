@@ -351,8 +351,10 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @return . The available amount the `_owner` can deposit in terms of `asset`
      */
     function availableDepositLimit(
-        address /*_owner*/
+        address _owner
     ) public view virtual override returns (uint256) {
+        if (super.availableDepositLimit(_owner) == 0) return 0;
+
         /// We need to be able to both supply and withdraw on deposits.
         if (_isSupplyPaused() || _isBorrowPaused()) return 0;
 

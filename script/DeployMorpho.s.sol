@@ -28,7 +28,7 @@ contract DeployMorpho is Script {
     address public emergencyAdmin =
         0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7;
     address public aprOracle;
-    address public constant EXCHANGE = 0xf46cbBCBE2b8D4dfB19c44652C1d015De1333C02; // curve swapper
+    address public constant EXCHANGE = 0xEbb2908D09eCf29924CfB0dFa28687491EcdEaF0; // curve swapper
     
     struct StrategyConfig {
         address asset;
@@ -48,10 +48,6 @@ contract DeployMorpho is Script {
         require(count > 0, "no strategies");
 
         vm.startBroadcast();
-
-        ManualBorrowRewardAprOracle manualBorrowRewardAprOracle = new ManualBorrowRewardAprOracle(deployer);
-        console2.log("ManualBorrowRewardAprOracle deployed at", address(manualBorrowRewardAprOracle));
-        return;
 
         if (aprOracle == address(0)) {
             aprOracle = address(new StrategyAprOracle(deployer));
@@ -75,24 +71,7 @@ contract DeployMorpho is Script {
             ));
             console2.log("Strategy deployed", i, strategy);
 
-            IStrategyInterface(strategy).setPerformanceFeeRecipient(performanceFeeRecipient);
-            IStrategyInterface(strategy).setKeeper(keeper);
-            IStrategyInterface(strategy).setEmergencyAdmin(emergencyAdmin);
-            IStrategyInterface(strategy).setPerformanceFee(500);
-            IStrategyInterface(strategy).setLossLimitRatio(10);
-
-            if (cfg.asset != 0x856c4Efb76C1D1AE02e20CEB03A2A6a08b0b8dC3) {
-                IStrategyInterface(strategy).setUniFees(cfg.asset, cfg.borrowToken, 3000);
-                IStrategyInterface(strategy).setUniBase(cfg.borrowToken);
-            } else {
-                address weth = IStrategyInterface(strategy).base();
-                IStrategyInterface(strategy).setUniFees(cfg.asset, weth, 500);
-                IStrategyInterface(strategy).setUniFees(weth, cfg.borrowToken, 500);
-            }
-
             APR_ORACLE.setOracle(strategy, address(aprOracle));
-
-            IStrategyInterface(strategy).setPendingManagement(management);
         }
 
         vm.stopBroadcast();
@@ -170,8 +149,7 @@ contract DeployMorpho is Script {
                 ) // USDC/USD
             })
         );
-        */
-
+        *
 
         configs.push(
             StrategyConfig({
@@ -189,6 +167,45 @@ contract DeployMorpho is Script {
                 borrowUsdOracle: address(
                     0x39E31761911b9aaBAEF5fb81B18Fd1C24a60E884
                 ) // PYUSD/USD
+            })
+        );
+        */
+
+        configs.push(
+            StrategyConfig({
+                asset: address(0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf), // cbBTC
+                name: "Morpho cbBTC/Sentora PYUSD Lender Borrower",
+                borrowToken: address(
+                    0x6c3ea9036406852006290770BEdFcAbA0e23A0e8
+                ), // PYUSD
+                lenderVault: address(
+                    0x68E2B0A30F0c470bC4Bdc80bB9A308b0187Ca610
+                ), // PYUSD ERC4626 vault
+                marketId: bytes32(
+                    0xd8a8e6667f58aa9229e8979bd619742b1660ee856c200a93e407dbccb7222323
+                ),
+                borrowUsdOracle: address(
+                    0x8f1dF6D7F2db73eECE86a18b4381F4707b918FB1
+                ) // PYUSD/USD
+            })
+        );
+
+        configs.push(
+            StrategyConfig({
+                asset: address(0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf), // cbBTC
+                name: "Morpho cbBTC/Sentora RLUSD Lender Borrower",
+                borrowToken: address(
+                    0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD
+                ), // RLUSD
+                lenderVault: address(
+                    0x5933b3972abD1CAcc7F6a6D5a24256a17f5c8289
+                ), // RLUSD ERC4626 vault
+                marketId: bytes32(
+                    0xffd010618ed3cb39bb2c5de0e3e58d3d2ec9f52187a180f29723c31756a939bc
+                ),
+                borrowUsdOracle: address(
+                    0x26C46B7aD0012cA71F2298ada567dC9Af14E7f2A
+                ) // RLUSD/USD
             })
         );
     }
