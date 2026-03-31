@@ -7,6 +7,7 @@ import {IStrategyInterface} from "../src/interfaces/IStrategyInterface.sol";
 import {StrategyAprOracle} from "../src/periphery/StrategyAprOracle.sol";
 import {AprOracle} from "@periphery/AprOracle/AprOracle.sol";
 import {MorphoBlueLenderBorrower} from "../src/MorphoBlueLenderBorrower.sol";
+import {ManualBorrowRewardAprOracle} from "../src/periphery/ManualBorrowRewardAprOracle.sol";
 
 /// @notice Deploy factory first, then deploy multiple strategies from a hardcoded list.
 ///         Required env for factory:
@@ -46,6 +47,10 @@ contract DeployMorpho is Script {
         require(count > 0, "no strategies");
 
         vm.startBroadcast();
+
+        ManualBorrowRewardAprOracle manualBorrowRewardAprOracle = new ManualBorrowRewardAprOracle(deployer);
+        console2.log("ManualBorrowRewardAprOracle deployed at", address(manualBorrowRewardAprOracle));
+        return;
 
         if (aprOracle == address(0)) {
             aprOracle = address(new StrategyAprOracle(deployer));
@@ -105,6 +110,7 @@ contract DeployMorpho is Script {
     function setupMainnetDeployments() internal {
         aprOracle = 0x8C1dB64512A62A2E9528f4B54d8FbC924b99251c;
 
+        /**
         // First entry: existing WBTC/USDC setup on mainnet.
         configs.push(
             StrategyConfig({
@@ -160,6 +166,27 @@ contract DeployMorpho is Script {
                 borrowUsdOracle: address(
                     0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6
                 ) // USDC/USD
+            })
+        );
+        */
+
+
+        configs.push(
+            StrategyConfig({
+                asset: address(0x80ac24aA929eaF5013f6436cdA2a7ba190f5Cc0b), // syrupUSDC
+                name: "Morpho syrupUSDC/Euler Ondo PYUSD Lender Borrower",
+                borrowToken: address(
+                    0x6c3ea9036406852006290770BEdFcAbA0e23A0e8
+                ), // PYUSD
+                lenderVault: address(
+                    0x69ebF644533655B5D3b6455e8E47ddE21b5993f1
+                ), // EVK PYUSD ERC4626 vault
+                marketId: bytes32(
+                    0xc9629945524f3fde56c7e8854a6c3d48e76b9d97236abbe73c750fcc7aeb8501
+                ),
+                borrowUsdOracle: address(
+                    0x39E31761911b9aaBAEF5fb81B18Fd1C24a60E884
+                ) // PYUSD/USD
             })
         );
     }
