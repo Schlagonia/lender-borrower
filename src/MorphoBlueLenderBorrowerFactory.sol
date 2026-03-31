@@ -45,7 +45,8 @@ contract MorphoBlueLenderBorrowerFactory {
         address _borrowToken,
         address _lenderVault,
         Id _marketId,
-        address _borrowUsdOracle
+        address _borrowUsdOracle,
+        address _exchange
     ) external virtual returns (address) {
         require(
             deployments[_marketId][_lenderVault] == address(0),
@@ -62,7 +63,8 @@ contract MorphoBlueLenderBorrowerFactory {
                     morpho,
                     _marketId,
                     _borrowUsdOracle,
-                    router
+                    router,
+                    _exchange
                 )
             )
         );

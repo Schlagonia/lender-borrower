@@ -28,7 +28,8 @@ contract DeployMorpho is Script {
     address public emergencyAdmin =
         0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7;
     address public aprOracle;
-
+    address public constant EXCHANGE = 0xf46cbBCBE2b8D4dfB19c44652C1d015De1333C02; // curve swapper
+    
     struct StrategyConfig {
         address asset;
         string name;
@@ -69,7 +70,8 @@ contract DeployMorpho is Script {
                 morpho,
                 Id.wrap(cfg.marketId),
                 cfg.borrowUsdOracle,
-                router
+                router,
+                address(EXCHANGE)
             ));
             console2.log("Strategy deployed", i, strategy);
 

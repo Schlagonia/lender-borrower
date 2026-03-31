@@ -8,7 +8,9 @@ import {ManualBorrowRewardAprOracle} from "../periphery/ManualBorrowRewardAprOra
 
 contract RewardOracleTest is Setup {
     Id internal constant OETH_USDC_MARKET_ID =
-        Id.wrap(0xb8fef900b383db2dbbf4458c7f46acf5b140f26d603a6d1829963f241b82510e);
+        Id.wrap(
+            0xb8fef900b383db2dbbf4458c7f46acf5b140f26d603a6d1829963f241b82510e
+        );
 
     StrategyAprOracle public strategyAprOracle;
     ManualBorrowRewardAprOracle public rewardOracle;
@@ -38,29 +40,47 @@ contract RewardOracleTest is Setup {
 
     function test_setRewardAprOracle_onlyGovernance() public {
         vm.prank(gov);
-        strategyAprOracle.setRewardAprOracle(address(strategy), address(rewardOracle));
+        strategyAprOracle.setRewardAprOracle(
+            address(strategy),
+            address(rewardOracle)
+        );
 
-        assertEq(strategyAprOracle.rewardAprOracles(address(strategy)), address(rewardOracle));
+        assertEq(
+            strategyAprOracle.rewardAprOracles(address(strategy)),
+            address(rewardOracle)
+        );
     }
 
     function test_setRewardAprOracle_revertsForNonGovernance() public {
         vm.expectRevert("!governance");
         vm.prank(management);
-        strategyAprOracle.setRewardAprOracle(address(strategy), address(rewardOracle));
+        strategyAprOracle.setRewardAprOracle(
+            address(strategy),
+            address(rewardOracle)
+        );
     }
 
     function test_strategyAprOracle_addsBorrowRewardApr() public {
         Id currentMarketId = strategy.marketId();
 
         vm.prank(gov);
-        strategyAprOracle.setRewardAprOracle(address(strategy), address(rewardOracle));
+        strategyAprOracle.setRewardAprOracle(
+            address(strategy),
+            address(rewardOracle)
+        );
 
-        uint256 baselineApr = strategyAprOracle.aprAfterDebtChange(address(strategy), 0);
+        uint256 baselineApr = strategyAprOracle.aprAfterDebtChange(
+            address(strategy),
+            0
+        );
         uint256 rewardApr = 777 * 1e14;
 
         vm.prank(management);
         rewardOracle.setBorrowRewardAprBps(currentMarketId, 777);
 
-        assertEq(strategyAprOracle.aprAfterDebtChange(address(strategy), 0), baselineApr + rewardApr);
+        assertEq(
+            strategyAprOracle.aprAfterDebtChange(address(strategy), 0),
+            baselineApr + rewardApr
+        );
     }
 }
