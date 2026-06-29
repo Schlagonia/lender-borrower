@@ -7,6 +7,7 @@ import {IStrategyInterface} from "../src/interfaces/IStrategyInterface.sol";
 import {StrategyAprOracle} from "../src/periphery/StrategyAprOracle.sol";
 import {AprOracle} from "@periphery/AprOracle/AprOracle.sol";
 import {MorphoBlueLenderBorrower} from "../src/MorphoBlueLenderBorrower.sol";
+import {ManualBorrowRewardAprOracle} from "../src/periphery/ManualBorrowRewardAprOracle.sol";
 
 /// @notice Deploy factory first, then deploy multiple strategies from a hardcoded list.
 ///         Required env for factory:
@@ -15,18 +16,15 @@ contract DeployMorpho is Script {
     AprOracle public constant APR_ORACLE = AprOracle(0x1981AD9F44F2EA9aDd2dC4AD7D075c102C70aF92);
     // Factory deploy params (hardcoded, no env).
     address public deployer = 0x1b5f15DCb82d25f91c65b53CEe151E8b9fBdD271;
-    address public morpho =
-        0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
-    address public router =
-        0xE592427A0AEce92De3Edee1F18E0157C05861564; // Uniswap V3 Router
+    address public morpho = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
+    address public router = 0xE592427A0AEce92De3Edee1F18E0157C05861564; // Uniswap V3 Router
     address public gov = 0xFEB4acf3df3cDEA7399794D0869ef76A6EfAff52;
     address public management = 0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7;
-    address public performanceFeeRecipient =
-        0x5A74Cb32D36f2f517DB6f7b0A0591e09b22cDE69;
+    address public performanceFeeRecipient = 0x5A74Cb32D36f2f517DB6f7b0A0591e09b22cDE69;
     address public keeper = 0x604e586F17cE106B64185A7a0d2c1Da5bAce711E;
-    address public emergencyAdmin =
-        0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7;
+    address public emergencyAdmin = 0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7;
     address public aprOracle;
+    address public constant EXCHANGE = 0xEbb2908D09eCf29924CfB0dFa28687491EcdEaF0; // curve swapper
 
     struct StrategyConfig {
         address asset;
@@ -55,37 +53,23 @@ contract DeployMorpho is Script {
 
         for (uint256 i = 0; i < count; i++) {
             StrategyConfig storage cfg = configs[i];
-            address strategy = address(new MorphoBlueLenderBorrower(
-                cfg.asset,
-                cfg.name,
-                cfg.borrowToken,
-                cfg.lenderVault,
-                gov,
-                morpho,
-                Id.wrap(cfg.marketId),
-                cfg.borrowUsdOracle,
-                router
-            ));
+            address strategy = address(
+                new MorphoBlueLenderBorrower(
+                    cfg.asset,
+                    cfg.name,
+                    cfg.borrowToken,
+                    cfg.lenderVault,
+                    gov,
+                    morpho,
+                    Id.wrap(cfg.marketId),
+                    cfg.borrowUsdOracle,
+                    router,
+                    address(EXCHANGE)
+                )
+            );
             console2.log("Strategy deployed", i, strategy);
 
-            IStrategyInterface(strategy).setPerformanceFeeRecipient(performanceFeeRecipient);
-            IStrategyInterface(strategy).setKeeper(keeper);
-            IStrategyInterface(strategy).setEmergencyAdmin(emergencyAdmin);
-            IStrategyInterface(strategy).setPerformanceFee(500);
-            IStrategyInterface(strategy).setLossLimitRatio(10);
-
-            if (cfg.asset != 0x856c4Efb76C1D1AE02e20CEB03A2A6a08b0b8dC3) {
-                IStrategyInterface(strategy).setUniFees(cfg.asset, cfg.borrowToken, 3000);
-                IStrategyInterface(strategy).setUniBase(cfg.borrowToken);
-            } else {
-                address weth = IStrategyInterface(strategy).base();
-                IStrategyInterface(strategy).setUniFees(cfg.asset, weth, 500);
-                IStrategyInterface(strategy).setUniFees(weth, cfg.borrowToken, 500);
-            }
-
             APR_ORACLE.setOracle(strategy, address(aprOracle));
-
-            IStrategyInterface(strategy).setPendingManagement(management);
         }
 
         vm.stopBroadcast();
@@ -105,61 +89,132 @@ contract DeployMorpho is Script {
     function setupMainnetDeployments() internal {
         aprOracle = 0x8C1dB64512A62A2E9528f4B54d8FbC924b99251c;
 
-        // First entry: existing WBTC/USDC setup on mainnet.
+        /**
+         * // First entry: existing WBTC/USDC setup on mainnet.
+         * configs.push(
+         *     StrategyConfig({
+         *         asset: address(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599), // WBTC
+         *         name: "Morpho WBTC/yvUSD Lender Borrower",
+         *         borrowToken: address(
+         *             0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+         *         ), // USDC
+         *         lenderVault: address(
+         *             0x696d02Db93291651ED510704c9b286841d506987
+         *         ), // USDC ERC4626 vault
+         *         marketId: bytes32(
+         *             0x3a85e619751152991742810df6ec69ce473daef99e28a64ab2340d7b7ccfee49
+         *         ),
+         *         borrowUsdOracle: address(
+         *             0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6
+         *         ) // USDC/USD
+         *     })
+         * );
+         *
+         * configs.push(
+         *     StrategyConfig({
+         *         asset: address(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599), // WBTC
+         *         name: "Morpho WBTC/yvUSDT-1 Lender Borrower",
+         *         borrowToken: address(
+         *             0xdAC17F958D2ee523a2206206994597C13D831ec7
+         *         ), // USDT
+         *         lenderVault: address(
+         *             0x310B7Ea7475A0B449Cfd73bE81522F1B88eFAFaa
+         *         ), // yvUSDT ERC4626 vault
+         *         marketId: bytes32(
+         *             0xa921ef34e2fc7a27ccc50ae7e4b154e16c9799d3387076c421423ef52ac4df99
+         *         ),
+         *         borrowUsdOracle: address(
+         *             0x3E7d1eAB13ad0104d2750B8863b489D65364e32D
+         *         ) // USDT/USD
+         *     })
+         * );
+         *
+         * configs.push(
+         *     StrategyConfig({
+         *         asset: address(0x856c4Efb76C1D1AE02e20CEB03A2A6a08b0b8dC3), // OETH
+         *         name: "Morpho OETH/yvUSDC-1 Lender Borrower",
+         *         borrowToken: address(
+         *             0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+         *         ), // USDC
+         *         lenderVault: address(
+         *             0xBe53A109B494E5c9f97b9Cd39Fe969BE68BF6204
+         *         ), // USDC ERC4626 vault
+         *         marketId: bytes32(
+         *             0xb8fef900b383db2dbbf4458c7f46acf5b140f26d603a6d1829963f241b82510e
+         *         ),
+         *         borrowUsdOracle: address(
+         *             0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6
+         *         ) // USDC/USD
+         *     })
+         * );
+         *
+         *
+         * configs.push(
+         *     StrategyConfig({
+         *         asset: address(0x80ac24aA929eaF5013f6436cdA2a7ba190f5Cc0b), // syrupUSDC
+         *         name: "Morpho syrupUSDC/Euler Ondo PYUSD Lender Borrower",
+         *         borrowToken: address(
+         *             0x6c3ea9036406852006290770BEdFcAbA0e23A0e8
+         *         ), // PYUSD
+         *         lenderVault: address(
+         *             0x69ebF644533655B5D3b6455e8E47ddE21b5993f1
+         *         ), // EVK PYUSD ERC4626 vault
+         *         marketId: bytes32(
+         *             0xc9629945524f3fde56c7e8854a6c3d48e76b9d97236abbe73c750fcc7aeb8501
+         *         ),
+         *         borrowUsdOracle: address(
+         *             0x39E31761911b9aaBAEF5fb81B18Fd1C24a60E884
+         *         ) // PYUSD/USD
+         *     })
+         * );
+         *
+         *
+         * configs.push(
+         *     StrategyConfig({
+         *         asset: address(0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf), // cbBTC
+         *         name: "Morpho cbBTC/Sentora PYUSD Lender Borrower",
+         *         borrowToken: address(
+         *             0x6c3ea9036406852006290770BEdFcAbA0e23A0e8
+         *         ), // PYUSD
+         *         lenderVault: address(
+         *             0x68E2B0A30F0c470bC4Bdc80bB9A308b0187Ca610
+         *         ), // PYUSD ERC4626 vault
+         *         marketId: bytes32(
+         *             0xd8a8e6667f58aa9229e8979bd619742b1660ee856c200a93e407dbccb7222323
+         *         ),
+         *         borrowUsdOracle: address(
+         *             0x8f1dF6D7F2db73eECE86a18b4381F4707b918FB1
+         *         ) // PYUSD/USD
+         *     })
+         * );
+         *
+         * configs.push(
+         *     StrategyConfig({
+         *         asset: address(0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf), // cbBTC
+         *         name: "Morpho cbBTC/Sentora RLUSD Lender Borrower",
+         *         borrowToken: address(
+         *             0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD
+         *         ), // RLUSD
+         *         lenderVault: address(
+         *             0x5933b3972abD1CAcc7F6a6D5a24256a17f5c8289
+         *         ), // RLUSD ERC4626 vault
+         *         marketId: bytes32(
+         *             0xffd010618ed3cb39bb2c5de0e3e58d3d2ec9f52187a180f29723c31756a939bc
+         *         ),
+         *         borrowUsdOracle: address(
+         *             0x26C46B7aD0012cA71F2298ada567dC9Af14E7f2A
+         *         ) // RLUSD/USD
+         *     })
+         * );
+         */
         configs.push(
             StrategyConfig({
-                asset: address(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599), // WBTC
-                name: "Morpho WBTC/yvUSD Lender Borrower",
-                borrowToken: address(
-                    0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
-                ), // USDC
-                lenderVault: address(
-                    0x696d02Db93291651ED510704c9b286841d506987
-                ), // USDC ERC4626 vault
-                marketId: bytes32(
-                    0x3a85e619751152991742810df6ec69ce473daef99e28a64ab2340d7b7ccfee49
-                ),
-                borrowUsdOracle: address(
-                    0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6
-                ) // USDC/USD
-            })
-        );
-
-        configs.push(
-            StrategyConfig({
-                asset: address(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599), // WBTC
-                name: "Morpho WBTC/yvUSDT-1 Lender Borrower",
-                borrowToken: address(
-                    0xdAC17F958D2ee523a2206206994597C13D831ec7
-                ), // USDT
-                lenderVault: address(
-                    0x310B7Ea7475A0B449Cfd73bE81522F1B88eFAFaa
-                ), // yvUSDT ERC4626 vault
-                marketId: bytes32(
-                    0xa921ef34e2fc7a27ccc50ae7e4b154e16c9799d3387076c421423ef52ac4df99
-                ),
-                borrowUsdOracle: address(
-                    0x3E7d1eAB13ad0104d2750B8863b489D65364e32D
-                ) // USDT/USD
-            })
-        );
-
-        configs.push(
-            StrategyConfig({
-                asset: address(0x856c4Efb76C1D1AE02e20CEB03A2A6a08b0b8dC3), // OETH
-                name: "Morpho OETH/yvUSDC-1 Lender Borrower",
-                borrowToken: address(
-                    0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
-                ), // USDC
-                lenderVault: address(
-                    0xBe53A109B494E5c9f97b9Cd39Fe969BE68BF6204
-                ), // USDC ERC4626 vault
-                marketId: bytes32(
-                    0xb8fef900b383db2dbbf4458c7f46acf5b140f26d603a6d1829963f241b82510e
-                ),
-                borrowUsdOracle: address(
-                    0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6
-                ) // USDC/USD
+                asset: address(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0), // wsETH
+                name: "Morpho wstETH/yvUSD Lender Borrower",
+                borrowToken: address(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48),
+                lenderVault: address(0x696d02Db93291651ED510704c9b286841d506987),
+                marketId: bytes32(0xb323495f7e4148be5643a4ea4a8221eef163e4bccfdedc2a6f4696baacbc86cc),
+                borrowUsdOracle: address(0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6)
             })
         );
     }
@@ -210,5 +265,4 @@ contract DeployMorpho is Script {
             })
         );
     }
-
 }

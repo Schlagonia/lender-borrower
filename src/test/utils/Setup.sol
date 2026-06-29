@@ -3,12 +3,15 @@ pragma solidity ^0.8.18;
 
 import "forge-std/console2.sol";
 import {ExtendedTest} from "./ExtendedTest.sol";
+import {MockExchange} from "../mocks/MockExchange.sol";
 
 import {MorphoBlueLenderBorrower as LenderBorrower, ERC20} from "../../MorphoBlueLenderBorrower.sol";
 import {MorphoBlueLenderBorrowerFactory as StrategyFactory} from "../../MorphoBlueLenderBorrowerFactory.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
-import {Id} from "../../interfaces/morpho/IMorpho.sol";
-
+import {IChainlinkAggregator} from "../../interfaces/IChainlinkAggregator.sol";
+import {IExchange} from "../../interfaces/IExchange.sol";
+import {IOracle} from "../../interfaces/morpho/IOracle.sol";
+import {IMorpho, Id, MarketParams} from "../../interfaces/morpho/IMorpho.sol";
 // Inherit the events so they can be checked if desired.
 import {IEvents} from "@tokenized-strategy/interfaces/IEvents.sol";
 
@@ -40,12 +43,12 @@ contract Setup is ExtendedTest, IEvents {
     address public constant BORROW_USD_ORACLE =
         0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6; // USDC / USD
     address public constant ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564; // Uniswap V3 Router
-
     address public borrowToken;
     address public lenderVault = LENDER_VAULT;
     address public morpho = MORPHO;
     address public borrowUsdOracle = BORROW_USD_ORACLE;
     address public router = ROUTER;
+    IExchange public exchange;
     Id public marketId = MARKET_ID;
 
     mapping(string => address) public tokenAddrs;
@@ -84,6 +87,8 @@ contract Setup is ExtendedTest, IEvents {
         // Set decimals
         decimals = asset.decimals();
 
+        exchange = _deployMockExchange();
+
         strategyFactory = new StrategyFactory(
             management,
             performanceFeeRecipient,
@@ -107,6 +112,7 @@ contract Setup is ExtendedTest, IEvents {
         vm.label(performanceFeeRecipient, "performanceFeeRecipient");
         vm.label(morpho, "morpho");
         vm.label(lenderVault, "lenderVault");
+        vm.label(address(exchange), "mockExchange");
     }
 
     function setUpStrategy() public returns (address) {
@@ -119,7 +125,8 @@ contract Setup is ExtendedTest, IEvents {
                     borrowToken,
                     lenderVault,
                     marketId,
-                    borrowUsdOracle
+                    borrowUsdOracle,
+                    address(exchange)
                 )
             )
         );
@@ -134,6 +141,8 @@ contract Setup is ExtendedTest, IEvents {
 
         // Set loss limit ratio to .1% (10 bps) to allow for interest accrual between reports
         _strategy.setLossLimitRatio(10);
+
+        _strategy.setOpen(true);
 
         vm.stopPrank();
 
@@ -199,6 +208,31 @@ contract Setup is ExtendedTest, IEvents {
         strategy.setPerformanceFee(_performanceFee);
     }
 
+    function _deployMockExchange() internal returns (IExchange _exchange) {
+        uint256 borrowPrice = _getBorrowTokenPrice();
+        uint256 collateralPrice = _getCollateralPrice();
+
+        _exchange = IExchange(
+            address(
+                new MockExchange(
+                    borrowToken,
+                    address(asset),
+                    borrowPrice,
+                    collateralPrice,
+                    address(this)
+                )
+            )
+        );
+
+        // Seed deep test liquidity so exact-input and exact-output paths do not starve.
+        airdrop(
+            ERC20(borrowToken),
+            address(_exchange),
+            100_000_000 * (10 ** ERC20(borrowToken).decimals())
+        );
+        airdrop(asset, address(_exchange), 1_000 * (10 ** decimals));
+    }
+
     function _setTokenAddrs() internal {
         tokenAddrs["WBTC"] = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
         tokenAddrs["YFI"] = 0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e;
@@ -233,5 +267,31 @@ contract Setup is ExtendedTest, IEvents {
         }
     }
 
-    function _getPrice(address _asset) internal view returns (uint256 price) {}
+    function _getPrice(address _asset) internal view returns (uint256 price) {
+        if (_asset == borrowToken) {
+            return _getBorrowTokenPrice();
+        }
+        if (_asset == address(asset)) {
+            return _getCollateralPrice();
+        }
+    }
+
+    function _getBorrowTokenPrice() internal view returns (uint256) {
+        int256 answer = IChainlinkAggregator(borrowUsdOracle).latestAnswer();
+        require(answer > 0, "0");
+        return uint256(answer);
+    }
+
+    function _getCollateralPrice() internal view returns (uint256) {
+        MarketParams memory params = IMorpho(morpho).idToMarketParams(marketId);
+
+        uint256 ratio = IOracle(params.oracle).price();
+        uint256 borrowScale = 10 ** ERC20(params.loanToken).decimals();
+        uint256 collateralScale = 10 **
+            ERC20(params.collateralToken).decimals();
+
+        return
+            (ratio * _getBorrowTokenPrice() * collateralScale) /
+            (borrowScale * 1e36);
+    }
 }
