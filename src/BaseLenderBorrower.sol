@@ -71,7 +71,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         if (_lenderVault != address(0)) {
             lenderVault = IERC4626(_lenderVault);
             require(lenderVault.asset() == _borrowToken, "!lenderVault");
-            ERC20(_borrowToken).safeApprove(_lenderVault, type(uint256).max);
+            ERC20(_borrowToken).forceApprove(_lenderVault, type(uint256).max);
         }
     }
 
@@ -351,8 +351,10 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      * @return . The available amount the `_owner` can deposit in terms of `asset`
      */
     function availableDepositLimit(
-        address /*_owner*/
+        address _owner
     ) public view virtual override returns (uint256) {
+        if (super.availableDepositLimit(_owner) == 0) return 0;
+
         /// We need to be able to both supply and withdraw on deposits.
         if (_isSupplyPaused() || _isBorrowPaused()) return 0;
 
@@ -957,25 +959,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     }
 
     /**
-     * @dev Optional function for a strategist to override that will
-     * allow management to manually withdraw deployed funds from the
-     * yield source if a strategy is shutdown.
-     *
-     * This should attempt to free `_amount`, noting that `_amount` may
-     * be more than is currently deployed.
-     *
-     * NOTE: This will not realize any profits or losses. A separate
-     * {report} will be needed in order to record any profit/loss. If
-     * a report may need to be called after a shutdown it is important
-     * to check if the strategy is shutdown during {_harvestAndReport}
-     * so that it does not simply re-deploy all funds that had been freed.
-     *
-     * EX:
-     *   if(freeAsset > 0 && !TokenizedStrategy.isShutdown()) {
-     *       depositFunds...
-     *    }
-     *
-     * @param _amount The amount of asset to attempt to free.
+     * @param _amount The amount of BORROW_TOKEN to attempt to withdraw, then will withdraw collateral up to the max withdrawal.
      */
     function _emergencyWithdraw(uint256 _amount) internal virtual override {
         _amount = Math.min(_amount, _lenderMaxWithdraw());
@@ -1001,10 +985,12 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
     ) external virtual onlyEmergencyAuthorized {
         if (_amount == type(uint256).max) {
             uint256 _balanceOfBorrowToken = balanceOfBorrowToken();
-            _amount = Math.min(
-                balanceOfLentAssets() + _balanceOfBorrowToken - balanceOfDebt(),
-                _balanceOfBorrowToken
-            );
+            uint256 have = balanceOfLentAssets() + _balanceOfBorrowToken;
+            uint256 owe = balanceOfDebt();
+            // Only sell excess if we have more than we owe
+            _amount = have > owe
+                ? Math.min(have - owe, _balanceOfBorrowToken)
+                : 0;
         }
         _sellBorrowToken(_amount);
     }

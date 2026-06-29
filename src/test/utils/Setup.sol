@@ -3,11 +3,15 @@ pragma solidity ^0.8.18;
 
 import "forge-std/console2.sol";
 import {ExtendedTest} from "./ExtendedTest.sol";
+import {MockExchange} from "../mocks/MockExchange.sol";
 
-import {LenderBorrower, ERC20} from "../../LenderBorrower.sol";
-import {StrategyFactory} from "../../StrategyFactory.sol";
+import {MorphoBlueLenderBorrower as LenderBorrower, ERC20} from "../../MorphoBlueLenderBorrower.sol";
+import {MorphoBlueLenderBorrowerFactory as StrategyFactory} from "../../MorphoBlueLenderBorrowerFactory.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
-
+import {IChainlinkAggregator} from "../../interfaces/IChainlinkAggregator.sol";
+import {IExchange} from "../../interfaces/IExchange.sol";
+import {IOracle} from "../../interfaces/morpho/IOracle.sol";
+import {IMorpho, Id, MarketParams} from "../../interfaces/morpho/IMorpho.sol";
 // Inherit the events so they can be checked if desired.
 import {IEvents} from "@tokenized-strategy/interfaces/IEvents.sol";
 
@@ -20,13 +24,32 @@ interface IFactory {
 }
 
 contract Setup is ExtendedTest, IEvents {
+    string internal constant RPC_ENV = "ETH_RPC_URL";
+
     // Contract instances that we will use repeatedly.
     ERC20 public asset;
     IStrategyInterface public strategy;
 
     StrategyFactory public strategyFactory;
 
+    // Mainnet constants
+    address public constant MORPHO = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
+    Id public constant MARKET_ID =
+        Id.wrap(
+            0x3a85e619751152991742810df6ec69ce473daef99e28a64ab2340d7b7ccfee49
+        );
+    address public constant LENDER_VAULT =
+        0xBc65ad17c5C0a2A4D159fa5a503f4992c7B545FE; // USDC ERC4626 vault
+    address public constant BORROW_USD_ORACLE =
+        0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6; // USDC / USD
+    address public constant ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564; // Uniswap V3 Router
     address public borrowToken;
+    address public lenderVault = LENDER_VAULT;
+    address public morpho = MORPHO;
+    address public borrowUsdOracle = BORROW_USD_ORACLE;
+    address public router = ROUTER;
+    IExchange public exchange;
+    Id public marketId = MARKET_ID;
 
     mapping(string => address) public tokenAddrs;
 
@@ -45,28 +68,35 @@ contract Setup is ExtendedTest, IEvents {
     uint256 public decimals;
     uint256 public MAX_BPS = 10_000;
 
-    // Fuzz from $0.01 of 1e6 stable coins up to 1 trillion of a 1e18 coin
-    uint256 public maxFuzzAmount = 1e30;
-    uint256 public minFuzzAmount = 10_000;
+    // Fuzz amounts sized for WBTC (8 decimals)
+    uint256 public maxFuzzAmount = 5e7; // 0.5 WBTC
+    uint256 public minFuzzAmount = 1e6; // 0.01 WBTC
 
     // Default profit max unlock time is set for 10 days
     uint256 public profitMaxUnlockTime = 10 days;
 
     function setUp() public virtual {
+        string memory rpc = vm.envString(RPC_ENV);
+        vm.createSelectFork(rpc);
         _setTokenAddrs();
 
         // Set asset
-        asset = ERC20(tokenAddrs["DAI"]);
+        asset = ERC20(tokenAddrs["WBTC"]);
+        borrowToken = tokenAddrs["USDC"];
 
         // Set decimals
         decimals = asset.decimals();
+
+        exchange = _deployMockExchange();
 
         strategyFactory = new StrategyFactory(
             management,
             performanceFeeRecipient,
             keeper,
             emergencyAdmin,
-            gov
+            gov,
+            morpho,
+            router
         );
 
         // Deploy strategy and set variables
@@ -74,15 +104,15 @@ contract Setup is ExtendedTest, IEvents {
 
         borrowToken = strategy.borrowToken();
 
-        factory = strategy.FACTORY();
-
         // label all the used addresses for traces
         vm.label(keeper, "keeper");
-        vm.label(factory, "factory");
         vm.label(address(asset), "asset");
         vm.label(management, "management");
         vm.label(address(strategy), "strategy");
         vm.label(performanceFeeRecipient, "performanceFeeRecipient");
+        vm.label(morpho, "morpho");
+        vm.label(lenderVault, "lenderVault");
+        vm.label(address(exchange), "mockExchange");
     }
 
     function setUpStrategy() public returns (address) {
@@ -92,13 +122,29 @@ contract Setup is ExtendedTest, IEvents {
                 strategyFactory.newStrategy(
                     address(asset),
                     "Tokenized Strategy",
-                    borrowToken
+                    borrowToken,
+                    lenderVault,
+                    marketId,
+                    borrowUsdOracle,
+                    address(exchange)
                 )
             )
         );
 
-        vm.prank(management);
+        vm.startPrank(management);
         _strategy.acceptManagement();
+
+        // Configure UniV3 fees for USDC/WETH/WBTC (0.3%).
+        _strategy.setUniFees(borrowToken, address(asset), 3000);
+
+        _strategy.setUniBase(borrowToken);
+
+        // Set loss limit ratio to .1% (10 bps) to allow for interest accrual between reports
+        _strategy.setLossLimitRatio(10);
+
+        _strategy.setOpen(true);
+
+        vm.stopPrank();
 
         return address(_strategy);
     }
@@ -162,6 +208,31 @@ contract Setup is ExtendedTest, IEvents {
         strategy.setPerformanceFee(_performanceFee);
     }
 
+    function _deployMockExchange() internal returns (IExchange _exchange) {
+        uint256 borrowPrice = _getBorrowTokenPrice();
+        uint256 collateralPrice = _getCollateralPrice();
+
+        _exchange = IExchange(
+            address(
+                new MockExchange(
+                    borrowToken,
+                    address(asset),
+                    borrowPrice,
+                    collateralPrice,
+                    address(this)
+                )
+            )
+        );
+
+        // Seed deep test liquidity so exact-input and exact-output paths do not starve.
+        airdrop(
+            ERC20(borrowToken),
+            address(_exchange),
+            100_000_000 * (10 ** ERC20(borrowToken).decimals())
+        );
+        airdrop(asset, address(_exchange), 1_000 * (10 ** decimals));
+    }
+
     function _setTokenAddrs() internal {
         tokenAddrs["WBTC"] = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
         tokenAddrs["YFI"] = 0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e;
@@ -196,5 +267,31 @@ contract Setup is ExtendedTest, IEvents {
         }
     }
 
-    function _getPrice(address _asset) internal view returns (uint256 price) {}
+    function _getPrice(address _asset) internal view returns (uint256 price) {
+        if (_asset == borrowToken) {
+            return _getBorrowTokenPrice();
+        }
+        if (_asset == address(asset)) {
+            return _getCollateralPrice();
+        }
+    }
+
+    function _getBorrowTokenPrice() internal view returns (uint256) {
+        int256 answer = IChainlinkAggregator(borrowUsdOracle).latestAnswer();
+        require(answer > 0, "0");
+        return uint256(answer);
+    }
+
+    function _getCollateralPrice() internal view returns (uint256) {
+        MarketParams memory params = IMorpho(morpho).idToMarketParams(marketId);
+
+        uint256 ratio = IOracle(params.oracle).price();
+        uint256 borrowScale = 10 ** ERC20(params.loanToken).decimals();
+        uint256 collateralScale = 10 **
+            ERC20(params.collateralToken).decimals();
+
+        return
+            (ratio * _getBorrowTokenPrice() * collateralScale) /
+            (borrowScale * 1e36);
+    }
 }
