@@ -7,6 +7,8 @@ interface ILenderBorrower is IBaseHealthCheck {
     // Public Variables
     function borrowToken() external view returns (address);
 
+    function exchange() external view returns (address);
+
     function leaveDebtBehind() external view returns (bool);
 
     function depositLimit() external view returns (uint256);
@@ -58,6 +60,8 @@ interface ILenderBorrower is IBaseHealthCheck {
     function claimAndSellRewards() external;
 
     function sellBorrowToken(uint256 _amount) external;
+
+    function buyBorrowToken(uint256 _amount) external;
 
     function manualWithdraw(address _token, uint256 _amount) external;
 

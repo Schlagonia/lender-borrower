@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.18;
 
-import {Setup, ERC20} from "./utils/Setup.sol";
+import {Setup} from "./utils/Setup.sol";
 import {MorphoBlueLenderBorrower} from "../MorphoBlueLenderBorrower.sol";
-import {IStrategyInterface} from "../interfaces/IStrategyInterface.sol";
 
 contract AccessControlTest is Setup {
     function setUp() public virtual override {
@@ -77,42 +76,6 @@ contract AccessControlTest is Setup {
         assertEq(strategy.slippage(), 9_999, "slippage not set");
     }
 
-    function test_setUniFees_onlyManagement() public {
-        vm.prank(user);
-        vm.expectRevert("!management");
-        MorphoBlueLenderBorrower(address(strategy)).setUniFees(
-            borrowToken,
-            address(asset),
-            3000
-        );
-
-        vm.prank(management);
-        MorphoBlueLenderBorrower(address(strategy)).setUniFees(
-            borrowToken,
-            address(asset),
-            3000
-        );
-    }
-
-    function test_setUniBase_onlyManagement() public {
-        vm.prank(user);
-        vm.expectRevert("!management");
-        MorphoBlueLenderBorrower(address(strategy)).setUniBase(address(0x1));
-
-        vm.prank(management);
-        MorphoBlueLenderBorrower(address(strategy)).setUniBase(address(0x1));
-        assertEq(strategy.base(), address(0x1), "base not set");
-    }
-
-    function test_setMinAmountToSell_onlyManagement() public {
-        vm.prank(user);
-        vm.expectRevert("!management");
-        MorphoBlueLenderBorrower(address(strategy)).setMinAmountToSell(1e10);
-
-        vm.prank(management);
-        MorphoBlueLenderBorrower(address(strategy)).setMinAmountToSell(1e10);
-    }
-
     function test_setBorrowUsdOracle_onlyManagement() public {
         address newOracle = address(0x2665701293fCbEB223D11A08D826563EDcCE423A);
         address badOracle = address(0x656c0544eF4C98A6a98491833A89204Abb045d6b);
@@ -164,6 +127,17 @@ contract AccessControlTest is Setup {
 
         vm.prank(management);
         strategy.sellBorrowToken(0);
+    }
+
+    function test_buyBorrowToken_onlyEmergencyAuthorized() public {
+        mintAndDepositIntoStrategy(strategy, user, minFuzzAmount);
+
+        vm.prank(user);
+        vm.expectRevert("!emergency authorized");
+        strategy.buyBorrowToken(0);
+
+        vm.prank(management);
+        strategy.buyBorrowToken(0);
     }
 
     function test_manualWithdraw_onlyEmergencyAuthorized() public {

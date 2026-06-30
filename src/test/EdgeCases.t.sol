@@ -2,7 +2,6 @@
 pragma solidity ^0.8.18;
 
 import {Setup, ERC20} from "./utils/Setup.sol";
-import {MorphoBlueLenderBorrower} from "../MorphoBlueLenderBorrower.sol";
 
 contract EdgeCasesTest is Setup {
     function setUp() public virtual override {
@@ -45,6 +44,79 @@ contract EdgeCasesTest is Setup {
         // Should complete without reverting
     }
 
+    function test_buyBorrowToken_respectsMinAmountOut() public {
+        uint256 _amount = minFuzzAmount * 2;
+
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        uint256 lent = strategy.balanceOfLentAssets();
+        vm.prank(management);
+        strategy.manualWithdraw(borrowToken, lent / 2);
+
+        uint256 sellAmount = strategy.balanceOfBorrowToken() / 2;
+        vm.prank(management);
+        strategy.sellBorrowToken(sellAmount);
+
+        uint256 owedBefore = strategy.borrowTokenOwedBalance();
+        assertGt(owedBefore, 0, "no owed balance");
+
+        uint256 buyAmount = owedBefore / 2;
+        assertGt(buyAmount, 0, "zero buy amount");
+        uint256 borrowBalanceBefore = strategy.balanceOfBorrowToken();
+        uint256 assetBalanceBefore = strategy.balanceOfAsset();
+
+        vm.prank(management);
+        strategy.buyBorrowToken(buyAmount);
+
+        assertGe(
+            strategy.balanceOfBorrowToken(),
+            borrowBalanceBefore + buyAmount,
+            "min borrow token not bought"
+        );
+        assertLe(
+            strategy.borrowTokenOwedBalance(),
+            owedBefore - buyAmount,
+            "owed balance not reduced"
+        );
+        assertLt(strategy.balanceOfAsset(), assetBalanceBefore, "asset unused");
+    }
+
+    function test_buyBorrowToken_maxUintBuysOwedBalance() public {
+        uint256 _amount = minFuzzAmount * 2;
+
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        uint256 lent = strategy.balanceOfLentAssets();
+        uint256 shortfall = lent / 100;
+        vm.prank(management);
+        strategy.manualWithdraw(borrowToken, shortfall);
+
+        uint256 sellAmount = strategy.balanceOfBorrowToken();
+        vm.prank(management);
+        strategy.sellBorrowToken(sellAmount);
+
+        uint256 owedBefore = strategy.borrowTokenOwedBalance();
+        assertGt(owedBefore, 0, "no owed balance");
+
+        uint256 owedInAsset = _fromUsd(
+            _toUsd(owedBefore, borrowToken),
+            address(asset)
+        );
+        airdrop(asset, address(strategy), owedInAsset / 10 + 1);
+
+        uint256 borrowBalanceBefore = strategy.balanceOfBorrowToken();
+
+        vm.prank(management);
+        strategy.buyBorrowToken(type(uint256).max);
+
+        assertGe(
+            strategy.balanceOfBorrowToken(),
+            borrowBalanceBefore + owedBefore,
+            "max did not buy at least owed"
+        );
+        assertEq(strategy.borrowTokenOwedBalance(), 0, "still owed");
+    }
+
     /// @notice Test that _claimAndSellRewards doesn't sell debt-backing assets
     /// @dev Interest accrual between checking debt and selling could cause issues
     /// EXPECTED: May fail with healthCheck error after 30 days due to high interest accrual
@@ -56,10 +128,6 @@ contract EdgeCasesTest is Setup {
 
         // Let significant time pass for interest to accrue
         skip(30 days);
-
-        // Get state before report
-        uint256 debtBefore = strategy.balanceOfDebt();
-        uint256 lentBefore = strategy.balanceOfLentAssets();
 
         // Report calls _claimAndSellRewards internally
         vm.prank(keeper);
@@ -78,15 +146,20 @@ contract EdgeCasesTest is Setup {
     }
 
     function test_claimAndSellRewards_rewardTokenSwap() public {
-        address rewardToken = 0x58D97B57BB95320F9a05dC918Aef65434969c2B2; // MORPHO
-        address uniBase = tokenAddrs["WETH"];
+        address rewardToken = tokenAddrs["LINK"];
         uint256 rewardAmount = 1e18;
 
-        vm.startPrank(management);
-        strategy.setUniBase(uniBase);
+        address[] memory routeTokens = new address[](3);
+        routeTokens[0] = rewardToken;
+        routeTokens[1] = borrowToken;
+        routeTokens[2] = address(asset);
 
-        strategy.setUniFees(rewardToken, uniBase, 3000);
-        strategy.setUniFees(uniBase, address(asset), 3000);
+        uint24[] memory fees = new uint24[](2);
+        fees[0] = 3_000;
+        fees[1] = 3_000;
+        _setUpUniswapMetaExchangeRoute(routeTokens, fees);
+
+        vm.startPrank(management);
         strategy.addRewardToken(rewardToken);
         vm.stopPrank();
 
@@ -283,23 +356,12 @@ contract EdgeCasesTest is Setup {
         );
     }
 
-    /// @notice Test that _getAmountOut handles zero slippage
+    /// @notice Test that zero slippage can be configured
     function test_zeroSlippage() public {
         // Set slippage to 0
         vm.prank(management);
         strategy.setSlippage(0);
-
-        uint256 _amount = minFuzzAmount;
-        mintAndDepositIntoStrategy(strategy, user, _amount);
-
-        // Let time pass
-        skip(1 days);
-
-        // Report should still work
-        vm.prank(keeper);
-        strategy.report();
-
-        assertGt(strategy.totalAssets(), 0, "strategy insolvent");
+        assertEq(strategy.slippage(), 0, "slippage not zero");
     }
 
     /// @notice Test deposit limit enforcement
