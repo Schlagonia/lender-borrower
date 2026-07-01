@@ -6,6 +6,7 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {BaseHealthCheck, ERC20} from "@periphery/Bases/HealthCheck/BaseHealthCheck.sol";
+import {IExchange} from "./interfaces/IExchange.sol";
 
 /**
  * @title Base Lender Borrower
@@ -15,8 +16,14 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
 
     uint256 internal constant WAD = 1e18;
 
+    /// The exchange that will be used for swaps.
+    IExchange public immutable exchange;
+
     /// The token we will be borrowing/supplying.
     address public immutable borrowToken;
+
+    /// The lender vault that will be used to lend and borrow.
+    IERC4626 public immutable lenderVault;
 
     /// If set to true, the strategy will not try to repay debt by selling rewards or asset.
     bool public leaveDebtBehind;
@@ -42,10 +49,6 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
 
     /// Thresholds: lower limit on how much base token can be borrowed at a time.
     uint256 internal minAmountToBorrow;
-
-    /// The lender vault that will be used to lend and borrow.
-    IERC4626 public immutable lenderVault;
-
     /**
      * @param _asset The address of the asset we are lending/borrowing.
      * @param _name The name of the strategy.
@@ -55,9 +58,12 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         address _asset,
         string memory _name,
         address _borrowToken,
-        address _lenderVault
+        address _lenderVault,
+        address _exchange
     ) BaseHealthCheck(_asset, _name) {
+        require(_exchange != address(0), "!exchange");
         borrowToken = _borrowToken;
+        exchange = IExchange(_exchange);
 
         // Set default variables
         depositLimit = type(uint256).max;
@@ -204,8 +210,11 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
         override
         returns (uint256 _totalAssets)
     {
-        /// 1. claim rewards, 2. even borrowToken deposits and borrows 3. sell remainder of rewards to asset.
+        /// 1. claim rewards
         _claimAndSellRewards();
+
+        /// 2. settle debt by withdrawing from lender and selling borrowToken if needed, and buying borrowToken if needed.
+        _settleDebt();
 
         /// Leverage all the asset we have or up to the supply cap.
         /// We want check our leverage even if balance of asset is 0.
@@ -218,6 +227,26 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             balanceOfAsset() +
             balanceOfCollateral() -
             _borrowTokenOwedInAsset();
+    }
+
+    function _settleDebt() internal virtual {
+        uint256 have = balanceOfLentAssets() + balanceOfBorrowToken();
+        uint256 owe = balanceOfDebt();
+
+        if (have > owe) {
+            uint256 amountToSell = have - owe;
+            _withdrawFromLender(amountToSell);
+            _sellBorrowToken(Math.min(amountToSell, balanceOfBorrowToken()));
+        } else if (owe > have) {
+            uint256 assetIn = _assetInForBorrowToken(owe - have);
+
+            uint256 assetBalance = balanceOfAsset();
+            if (assetIn > assetBalance) {
+                _withdrawCollateral(assetIn - assetBalance);
+            }
+            _buyBorrowToken(owe - have);
+            _repayTokenDebt();
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -528,7 +557,7 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
             /// using this part of code may result in losses but it is necessary to unlock full collateral
             /// in case of wind down. This should only occur when depleting the strategy so we buy the full
             /// amount of our remaining debt. We buy borrowToken first with available rewards then with asset.
-            _buyBorrowToken();
+            _buyBorrowToken(borrowTokenOwedBalance());
 
             /// we repay debt to actually unlock collateral
             /// after this, balanceOfDebt should be 0
@@ -918,18 +947,69 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
      */
     function _claimAndSellRewards() internal virtual;
 
-    /**
-     * @dev Buys the borrow token using the strategy's assets.
-     * This function should only ever be called when withdrawing all funds from the strategy if there is debt left over.
-     * Initially, it tries to sell rewards for the needed amount of base token, then it will swap assets.
-     * Using this function in a standard withdrawal can cause it to be sandwiched, which is why rewards are used first.
-     */
-    function _buyBorrowToken() internal virtual;
+    function _swapFrom(
+        address _from,
+        address _to,
+        uint256 _amount,
+        uint256 _minAmountOut
+    ) internal virtual returns (uint256) {
+        if (_amount == 0 || _from == _to) return _amount;
+
+        ERC20(_from).forceApprove(address(exchange), type(uint256).max);
+
+        return exchange.exchange(_from, _to, _amount, _minAmountOut);
+    }
 
     /**
      * @dev Will swap from the base token => underlying asset.
      */
-    function _sellBorrowToken(uint256 _amount) internal virtual;
+    function _sellBorrowToken(uint256 _amount) internal virtual {
+        uint256 minAmountOut = _getAmountOut(
+            _amount,
+            borrowToken,
+            address(asset)
+        );
+        if (minAmountOut == 0) return;
+
+        _swapFrom(borrowToken, address(asset), _amount, minAmountOut);
+    }
+
+    /**
+     * @dev Buys the borrow token using the strategy's assets.
+     * This function should only ever be called when withdrawing all funds from the strategy if there is debt left over.
+     * It will swap asset as exact input with the borrow-token amount as the minimum output.
+     */
+    function _buyBorrowToken(uint256 _amount) internal virtual {
+        uint256 assetIn = _assetInForBorrowToken(_amount);
+        _swapFrom(address(asset), borrowToken, assetIn, _amount);
+    }
+
+    function _assetInForBorrowToken(
+        uint256 _amount
+    ) internal view virtual returns (uint256) {
+        if (_amount == 0) return 0;
+
+        uint256 amountUsd = Math.mulDiv(
+            _amount,
+            _getPrice(borrowToken),
+            10 ** ERC20(borrowToken).decimals(),
+            Math.Rounding.Up
+        );
+        uint256 amountInAsset = Math.mulDiv(
+            amountUsd,
+            10 ** asset.decimals(),
+            _getPrice(address(asset)),
+            Math.Rounding.Up
+        );
+
+        return
+            Math.mulDiv(
+                amountInAsset,
+                MAX_BPS + slippage,
+                MAX_BPS,
+                Math.Rounding.Up
+            );
+    }
 
     /**
      * @notice Estimates swap output accounting for slippage
@@ -993,6 +1073,15 @@ abstract contract BaseLenderBorrower is BaseHealthCheck {
                 : 0;
         }
         _sellBorrowToken(_amount);
+    }
+
+    function buyBorrowToken(
+        uint256 _amount
+    ) external virtual onlyEmergencyAuthorized {
+        if (_amount == type(uint256).max) {
+            _amount = borrowTokenOwedBalance();
+        }
+        _buyBorrowToken(_amount);
     }
 
     /// @notice Withdraw a specific amount of `_token`

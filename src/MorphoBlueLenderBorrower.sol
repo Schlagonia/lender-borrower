@@ -12,10 +12,8 @@ import {IOracle} from "./interfaces/morpho/IOracle.sol";
 import {MorphoBalancesLib, MorphoLib} from "./libraries/morpho/periphery/MorphoBalancesLib.sol";
 import {SharesMathLib} from "./libraries/morpho/SharesMathLib.sol";
 import {IMerklDistributor} from "./interfaces/IMerklDistributor.sol";
-import {IExchange} from "./interfaces/IExchange.sol";
-import {UniswapV3Swapper} from "@periphery/swappers/UniswapV3Swapper.sol";
 
-contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
+contract MorphoBlueLenderBorrower is BaseLenderBorrower {
     using SafeERC20 for ERC20;
     using MorphoBalancesLib for IMorpho;
     using MorphoLib for IMorpho;
@@ -29,8 +27,6 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
     IMorpho public immutable morpho;
     Id public immutable marketId;
     MarketParams public marketParams;
-
-    IExchange public immutable EXCHANGE;
 
     address public immutable GOV;
 
@@ -53,9 +49,8 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
         address _morpho,
         Id _marketId,
         address _borrowUsdOracle,
-        address _router,
         address _exchange
-    ) BaseLenderBorrower(_asset, _name, _borrowToken, _lenderVault) {
+    ) BaseLenderBorrower(_asset, _name, _borrowToken, _lenderVault, _exchange) {
         GOV = _gov;
         morpho = IMorpho(_morpho);
         marketId = _marketId;
@@ -70,13 +65,6 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
 
         ERC20(_asset).forceApprove(_morpho, type(uint256).max);
         ERC20(_borrowToken).forceApprove(_morpho, type(uint256).max);
-
-        EXCHANGE = IExchange(_exchange);
-        ERC20(_borrowToken).forceApprove(_exchange, type(uint256).max);
-        ERC20(_asset).forceApprove(_exchange, type(uint256).max);
-
-        router = _router;
-        _setMinAmountToSell(1e4);
 
         require(IChainlinkAggregator(_borrowUsdOracle).decimals() == 8);
         borrowUsdOracle = _borrowUsdOracle;
@@ -244,7 +232,6 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
         for (uint256 i = 0; i < _rewardTokens.length; i++) {
             rewardToken = _rewardTokens[i];
 
-            // Swapper checks > minAmountToSell
             _swapFrom(
                 rewardToken,
                 address(asset),
@@ -252,38 +239,6 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
                 0
             );
         }
-
-        uint256 have = balanceOfLentAssets() + balanceOfBorrowToken();
-        uint256 owe = balanceOfDebt();
-
-        if (have > owe) {
-            uint256 amountToSell = have - owe;
-            _withdrawFromLender(amountToSell);
-            _sellBorrowToken(Math.min(amountToSell, balanceOfBorrowToken()));
-        }
-    }
-
-    function _buyBorrowToken() internal virtual override {
-        uint256 _amount = borrowTokenOwedBalance();
-
-        uint256 maxAssetIn = (_fromUsd(
-            _toUsd(_amount, borrowToken),
-            address(asset)
-        ) * (MAX_BPS + slippage)) / MAX_BPS;
-        if (maxAssetIn == 0) return;
-
-        EXCHANGE.exchange(address(asset), borrowToken, maxAssetIn, _amount);
-    }
-
-    function _sellBorrowToken(uint256 _amount) internal virtual override {
-        if (_amount == 0) return;
-
-        EXCHANGE.exchange(
-            borrowToken,
-            address(asset),
-            _amount,
-            _getAmountOut(_amount, borrowToken, address(asset)) // minAmount
-        );
     }
 
     /**
@@ -310,18 +265,6 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
                         MANAGEMENT UTILITIES
     //////////////////////////////////////////////////////////////*/
 
-    function setUniFees(
-        address _token0,
-        address _token1,
-        uint24 _fee
-    ) external onlyManagement {
-        _setUniFees(_token0, _token1, _fee);
-    }
-
-    function setUniBase(address _base) external onlyManagement {
-        base = _base;
-    }
-
     function addRewardToken(address _rewardToken) external onlyManagement {
         require(
             _rewardToken != address(0) &&
@@ -344,12 +287,6 @@ contract MorphoBlueLenderBorrower is BaseLenderBorrower, UniswapV3Swapper {
                 break;
             }
         }
-    }
-
-    function setMinAmountToSell(
-        uint256 _minAmountToSell
-    ) external onlyManagement {
-        _setMinAmountToSell(_minAmountToSell);
     }
 
     function setBorrowUsdOracle(

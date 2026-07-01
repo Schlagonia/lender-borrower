@@ -10,7 +10,6 @@ contract MorphoBlueLenderBorrowerFactory {
 
     address public immutable GOV;
     address public immutable morpho;
-    address public immutable router;
 
     address public management;
     address public performanceFeeRecipient;
@@ -26,8 +25,7 @@ contract MorphoBlueLenderBorrowerFactory {
         address _keeper,
         address _emergencyAdmin,
         address _gov,
-        address _morpho,
-        address _router
+        address _morpho
     ) {
         require(_gov != address(0));
         management = _management;
@@ -36,7 +34,6 @@ contract MorphoBlueLenderBorrowerFactory {
         emergencyAdmin = _emergencyAdmin;
         GOV = _gov;
         morpho = _morpho;
-        router = _router;
     }
 
     function newStrategy(
@@ -63,7 +60,6 @@ contract MorphoBlueLenderBorrowerFactory {
                     morpho,
                     _marketId,
                     _borrowUsdOracle,
-                    router,
                     _exchange
                 )
             )

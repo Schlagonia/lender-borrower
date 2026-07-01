@@ -3,9 +3,8 @@ pragma solidity ^0.8.18;
 
 import "forge-std/console2.sol";
 import {ExtendedTest} from "./ExtendedTest.sol";
-import {MockExchange} from "../mocks/MockExchange.sol";
 
-import {MorphoBlueLenderBorrower as LenderBorrower, ERC20} from "../../MorphoBlueLenderBorrower.sol";
+import {ERC20} from "../../MorphoBlueLenderBorrower.sol";
 import {MorphoBlueLenderBorrowerFactory as StrategyFactory} from "../../MorphoBlueLenderBorrowerFactory.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
 import {IChainlinkAggregator} from "../../interfaces/IChainlinkAggregator.sol";
@@ -21,6 +20,36 @@ interface IFactory {
     function set_protocol_fee_bps(uint16) external;
 
     function set_protocol_fee_recipient(address) external;
+}
+
+interface IMetaExchange is IExchange {
+    struct RouteStep {
+        address exchange;
+        address tokenFrom;
+        address tokenTo;
+    }
+
+    function governance() external view returns (address);
+
+    function getRoute(
+        address from,
+        address to
+    ) external view returns (RouteStep[] memory);
+
+    function setRoute(
+        address from,
+        address to,
+        RouteStep[] calldata route
+    ) external;
+}
+
+interface IUniswapExchange is IExchange {
+    function uniFees(
+        address token0,
+        address token1
+    ) external view returns (uint24);
+
+    function setUniFees(address token0, address token1, uint24 fee) external;
 }
 
 contract Setup is ExtendedTest, IEvents {
@@ -42,12 +71,14 @@ contract Setup is ExtendedTest, IEvents {
         0xBc65ad17c5C0a2A4D159fa5a503f4992c7B545FE; // USDC ERC4626 vault
     address public constant BORROW_USD_ORACLE =
         0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6; // USDC / USD
-    address public constant ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564; // Uniswap V3 Router
+    address public constant META_EXCHANGE =
+        0x3E7A91F87c1b6C9D8FA806235fd69Aa0D7577caA;
+    address public constant UNISWAP_EXCHANGE =
+        0xe564653F78A6C9804b3d94eedEe06DA3fe4e351c;
     address public borrowToken;
     address public lenderVault = LENDER_VAULT;
     address public morpho = MORPHO;
     address public borrowUsdOracle = BORROW_USD_ORACLE;
-    address public router = ROUTER;
     IExchange public exchange;
     Id public marketId = MARKET_ID;
 
@@ -87,7 +118,7 @@ contract Setup is ExtendedTest, IEvents {
         // Set decimals
         decimals = asset.decimals();
 
-        exchange = _deployMockExchange();
+        exchange = IExchange(META_EXCHANGE);
 
         strategyFactory = new StrategyFactory(
             management,
@@ -95,8 +126,7 @@ contract Setup is ExtendedTest, IEvents {
             keeper,
             emergencyAdmin,
             gov,
-            morpho,
-            router
+            morpho
         );
 
         // Deploy strategy and set variables
@@ -112,7 +142,8 @@ contract Setup is ExtendedTest, IEvents {
         vm.label(performanceFeeRecipient, "performanceFeeRecipient");
         vm.label(morpho, "morpho");
         vm.label(lenderVault, "lenderVault");
-        vm.label(address(exchange), "mockExchange");
+        vm.label(address(exchange), "metaExchange");
+        vm.label(UNISWAP_EXCHANGE, "uniswapExchange");
     }
 
     function setUpStrategy() public returns (address) {
@@ -133,11 +164,6 @@ contract Setup is ExtendedTest, IEvents {
 
         vm.startPrank(management);
         _strategy.acceptManagement();
-
-        // Configure UniV3 fees for USDC/WETH/WBTC (0.3%).
-        _strategy.setUniFees(borrowToken, address(asset), 3000);
-
-        _strategy.setUniBase(borrowToken);
 
         // Set loss limit ratio to .1% (10 bps) to allow for interest accrual between reports
         _strategy.setLossLimitRatio(10);
@@ -208,29 +234,44 @@ contract Setup is ExtendedTest, IEvents {
         strategy.setPerformanceFee(_performanceFee);
     }
 
-    function _deployMockExchange() internal returns (IExchange _exchange) {
-        uint256 borrowPrice = _getBorrowTokenPrice();
-        uint256 collateralPrice = _getCollateralPrice();
-
-        _exchange = IExchange(
-            address(
-                new MockExchange(
-                    borrowToken,
-                    address(asset),
-                    borrowPrice,
-                    collateralPrice,
-                    address(this)
-                )
-            )
+    function _setUpUniswapMetaExchangeRoute(
+        address[] memory tokens,
+        uint24[] memory fees
+    ) internal {
+        require(
+            tokens.length >= 2 && tokens.length == fees.length + 1,
+            "route"
         );
 
-        // Seed deep test liquidity so exact-input and exact-output paths do not starve.
-        airdrop(
-            ERC20(borrowToken),
-            address(_exchange),
-            100_000_000 * (10 ** ERC20(borrowToken).decimals())
+        IMetaExchange metaExchange = IMetaExchange(META_EXCHANGE);
+        address from = tokens[0];
+        address to = tokens[tokens.length - 1];
+
+        if (metaExchange.getRoute(from, to).length != 0) return;
+
+        IUniswapExchange uniExchange = IUniswapExchange(UNISWAP_EXCHANGE);
+        IMetaExchange.RouteStep[] memory route = new IMetaExchange.RouteStep[](
+            fees.length
         );
-        airdrop(asset, address(_exchange), 1_000 * (10 ** decimals));
+
+        address metaGov = metaExchange.governance();
+        vm.startPrank(metaGov);
+        for (uint256 i = 0; i < fees.length; i++) {
+            if (
+                uniExchange.uniFees(tokens[i], tokens[i + 1]) == 0 ||
+                uniExchange.uniFees(tokens[i + 1], tokens[i]) == 0
+            ) {
+                uniExchange.setUniFees(tokens[i], tokens[i + 1], fees[i]);
+            }
+
+            route[i] = IMetaExchange.RouteStep({
+                exchange: UNISWAP_EXCHANGE,
+                tokenFrom: tokens[i],
+                tokenTo: tokens[i + 1]
+            });
+        }
+        metaExchange.setRoute(from, to, route);
+        vm.stopPrank();
     }
 
     function _setTokenAddrs() internal {

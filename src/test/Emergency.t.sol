@@ -2,7 +2,6 @@
 pragma solidity ^0.8.18;
 
 import {Setup, ERC20} from "./utils/Setup.sol";
-import {MorphoBlueLenderBorrower} from "../MorphoBlueLenderBorrower.sol";
 
 contract EmergencyTest is Setup {
     function setUp() public virtual override {
@@ -31,22 +30,6 @@ contract EmergencyTest is Setup {
         mintAndDepositIntoStrategy(strategy, user, _amount);
         vm.prank(management);
         strategy.shutdownStrategy();
-
-        // Configure UniV3 fees for USDC->WETH and WETH->WBTC.
-        address uniBase = MorphoBlueLenderBorrower(address(strategy)).base();
-        vm.startPrank(management);
-        MorphoBlueLenderBorrower(address(strategy)).setUniFees(
-            borrowToken,
-            uniBase,
-            500
-        );
-        MorphoBlueLenderBorrower(address(strategy)).setUniFees(
-            uniBase,
-            address(asset),
-            3_000
-        );
-        MorphoBlueLenderBorrower(address(strategy)).setMinAmountToSell(0);
-        vm.stopPrank();
 
         vm.expectRevert("!emergency authorized");
         vm.prank(user);

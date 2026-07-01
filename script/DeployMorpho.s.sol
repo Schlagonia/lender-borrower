@@ -11,20 +11,19 @@ import {ManualBorrowRewardAprOracle} from "../src/periphery/ManualBorrowRewardAp
 
 /// @notice Deploy factory first, then deploy multiple strategies from a hardcoded list.
 ///         Required env for factory:
-///         GOV, MORPHO, ROUTER (optional: MANAGEMENT, PERFORMANCE_FEE_RECIPIENT, KEEPER, EMERGENCY_ADMIN).
+///         GOV, MORPHO (optional: MANAGEMENT, PERFORMANCE_FEE_RECIPIENT, KEEPER, EMERGENCY_ADMIN).
 contract DeployMorpho is Script {
     AprOracle public constant APR_ORACLE = AprOracle(0x1981AD9F44F2EA9aDd2dC4AD7D075c102C70aF92);
     // Factory deploy params (hardcoded, no env).
     address public deployer = 0x1b5f15DCb82d25f91c65b53CEe151E8b9fBdD271;
     address public morpho = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
-    address public router = 0xE592427A0AEce92De3Edee1F18E0157C05861564; // Uniswap V3 Router
     address public gov = 0xFEB4acf3df3cDEA7399794D0869ef76A6EfAff52;
     address public management = 0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7;
     address public performanceFeeRecipient = 0x5A74Cb32D36f2f517DB6f7b0A0591e09b22cDE69;
     address public keeper = 0x604e586F17cE106B64185A7a0d2c1Da5bAce711E;
     address public emergencyAdmin = 0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7;
     address public aprOracle;
-    address public constant EXCHANGE = 0xEbb2908D09eCf29924CfB0dFa28687491EcdEaF0; // curve swapper
+    address public constant EXCHANGE = 0x3E7A91F87c1b6C9D8FA806235fd69Aa0D7577caA; // MetaExchange
 
     struct StrategyConfig {
         address asset;
@@ -63,7 +62,6 @@ contract DeployMorpho is Script {
                     morpho,
                     Id.wrap(cfg.marketId),
                     cfg.borrowUsdOracle,
-                    router,
                     address(EXCHANGE)
                 )
             );
@@ -222,7 +220,6 @@ contract DeployMorpho is Script {
     function setupKatanaDeployments() internal {
         // Override global variables for Katana.
         morpho = 0xD50F2DffFd62f94Ee4AEd9ca05C61d0753268aBc;
-        router = 0x4e1d81A3E627b9294532e990109e4c21d217376C;
         gov = 0xe6ad5A88f5da0F276C903d9Ac2647A937c917162;
         management = 0xBe7c7efc1ef3245d37E3157F76A512108D6D7aE6;
         performanceFeeRecipient = 0x1f399808fE52d0E960CAB84b6b54d5707ab27c8a;

@@ -25,10 +25,6 @@ interface IStrategyInterface is IStrategy, ILenderBorrower {
 
     function lenderVault() external view returns (address);
 
-    function base() external view returns (address);
-
-    function router() external view returns (address);
-
     function rewardTokens(uint256 _index) external view returns (address);
 
     // Morpho-specific management setters
@@ -38,12 +34,6 @@ interface IStrategyInterface is IStrategy, ILenderBorrower {
         address _assetUsdOracle,
         address _borrowUsdOracle
     ) external;
-
-    function setUniFees(address _token0, address _token1, uint24 _fee) external;
-
-    function setUniBase(address _base) external;
-
-    function setMinAmountToSell(uint256 _minAmountToSell) external;
 
     function setAuction(address _auction) external;
 
