@@ -9,7 +9,7 @@ contract OracleTest is Setup {
     StrategyAprOracle public oracle;
 
     function setUp() public override {
-        lenderVault = 0xBe53A109B494E5c9f97b9Cd39Fe969BE68BF6204;
+        lenderVault = 0x696d02Db93291651ED510704c9b286841d506987;
         super.setUp();
         oracle = new StrategyAprOracle(management);
     }
@@ -23,7 +23,7 @@ contract OracleTest is Setup {
         console2.log("currentApr", currentApr);
 
         // Should be non-negative and reasonably bounded (< 1000% APR)
-        assertGe(currentApr, 0, "ZERO");
+        assertGt(currentApr, 0, "ZERO");
         assertLt(currentApr, 10e18, "too high");
 
         uint256 negativeDebtChangeApr = oracle.aprAfterDebtChange(
